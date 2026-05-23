@@ -1,0 +1,264 @@
+:root {
+  --bg: #f3f5f8;
+  --panel: #ffffff;
+  --text: #1a2433;
+  --muted: #5f6c80;
+  --line: #d8deea;
+  --accent: #0f766e;
+  --danger: #b42318;
+  --shadow: 0 10px 28px rgba(22, 32, 53, 0.08);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 16px;
+  color: var(--text);
+  font-family: Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  background: radial-gradient(circle at top left, #effaf6 0%, #f3f5f8 40%, #eef2f9 100%);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr 340px;
+  gap: 12px;
+  min-height: 66vh;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--shadow);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+h2, h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+label {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+input, textarea, button, select {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+textarea { resize: vertical; }
+
+button {
+  cursor: pointer;
+  background: #f7faf9;
+}
+
+button:hover { border-color: #9fb7d8; }
+
+button.ghost { background: #fff; }
+button.danger { color: var(--danger); }
+
+#runScriptBtn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.row > * { flex: 1; }
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.checkbox input {
+  width: auto;
+}
+
+.scripts-list {
+  display: grid;
+  gap: 6px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.script-item {
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.script-item.active {
+  border-color: var(--accent);
+  background: #ecfdf8;
+}
+
+#scriptEditor {
+  width: 100%;
+  min-height: 58vh;
+}
+
+.sync-tester {
+  margin-top: 12px;
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+}
+
+.sync-inputs {
+  display: grid;
+  gap: 6px;
+}
+
+.sync-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+}
+
+.sync-row button {
+  width: auto;
+  padding: 8px 10px;
+}
+
+.sync-result {
+  margin-top: 8px;
+  min-height: 100px;
+  max-height: 220px;
+}
+
+.runs-panel {
+  margin-top: 12px;
+}
+
+.runs-list {
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+  margin-bottom: 12px;
+}
+
+.run-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.run-item.active {
+  border-color: var(--accent);
+  background: #f0fdf9;
+}
+
+.status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #c5d0e0;
+  font-size: 11px;
+}
+
+.status.running { background: #ecfeff; border-color: #99f6e4; }
+.status.done { background: #ecfdf3; border-color: #a7f3d0; }
+.status.failed { background: #fff1f2; border-color: #fecdd3; }
+.status.stopped { background: #fff7ed; border-color: #fed7aa; }
+
+.logs {
+  min-height: 220px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfdff;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  font-size: 11px;
+}
+
+.muted { color: var(--muted); font-size: 11px; }
+.small { width: auto; padding: 5px 8px; font-size: 11px; }
+
+.hidden { display: none !important; }
+
+.docs-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 18, 32, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 999;
+}
+
+.docs-panel {
+  width: min(1040px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--shadow);
+}
+
+.docs-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #fbfdff;
+}
+
+.docs-card h3 {
+  margin-bottom: 6px;
+}
+
+.docs-code {
+  min-height: 40px;
+  max-height: none;
+  margin-bottom: 8px;
+}
+
+.copy-btn {
+  width: auto;
+}
+
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: 1fr; }
+  #scriptEditor { min-height: 44vh; }
+  .sync-row { grid-template-columns: 1fr; }
+}

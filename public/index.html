@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Playwright Runner</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="layout">
+    <aside class="panel scripts-panel">
+      <div class="panel-head">
+        <h2>Scripts</h2>
+        <div class="row">
+          <button id="apiDocsBtn" class="ghost">API Docs</button>
+          <button id="newScriptBtn" class="ghost">New</button>
+        </div>
+      </div>
+      <div id="scriptsList" class="scripts-list"></div>
+    </aside>
+
+    <section class="panel editor-panel">
+      <div class="panel-head">
+        <h2 id="currentScriptTitle">No script selected</h2>
+        <div class="row">
+          <button id="downloadScriptBtn" class="ghost">Download</button>
+          <button id="uploadScriptBtn" class="ghost">Upload</button>
+          <button id="saveScriptBtn" class="ghost">Save</button>
+          <button id="deleteScriptBtn" class="ghost danger">Delete</button>
+          <button id="runScriptBtn">Run</button>
+        </div>
+      </div>
+      <input id="uploadScriptInput" type="file" accept=".js,text/javascript,application/javascript" class="hidden" />
+      <textarea id="scriptEditor" spellcheck="false"></textarea>
+      <div class="sync-tester">
+        <div class="panel-head">
+          <h3>Sync Input Tester</h3>
+          <button id="addSyncInputBtn" class="ghost small">Add Input</button>
+        </div>
+        <div id="syncInputsList" class="sync-inputs"></div>
+        <label class="checkbox">
+          <input id="syncIncludeLogs" type="checkbox" />
+          <span>includeLogs=true</span>
+        </label>
+        <div class="row">
+          <button id="runSyncBtn" class="ghost">Run Sync</button>
+        </div>
+        <pre id="syncResult" class="logs sync-result"></pre>
+      </div>
+    </section>
+
+    <aside class="panel settings-panel">
+      <div class="panel-head"><h2>Browser Setup</h2></div>
+
+      <label>Profile Name</label>
+      <input id="profileName" placeholder="default" />
+      <button id="recreateProfileBtn" class="ghost">Recreate Profile</button>
+
+      <label>Browser Engine</label>
+      <select id="browserEngine">
+        <option value="chromium">Chromium (Current Anti-Detect Setup)</option>
+        <option value="chrome">Google Chrome (Regular)</option>
+        <option value="camoufox">Camoufox</option>
+      </select>
+
+      <label>Standard Preset</label>
+      <div class="row">
+        <select id="fingerprintPreset"></select>
+        <button id="applyPresetBtn" class="ghost">Apply</button>
+      </div>
+
+      <label>Proxy</label>
+      <input id="proxy" placeholder="host:port or user:pass@host:port" />
+
+      <label>User Agent</label>
+      <textarea id="userAgent" rows="3" placeholder="Optional"></textarea>
+
+      <div class="row">
+        <div>
+          <label>Viewport W</label>
+          <input id="viewportWidth" type="number" min="320" />
+        </div>
+        <div>
+          <label>Viewport H</label>
+          <input id="viewportHeight" type="number" min="320" />
+        </div>
+      </div>
+
+      <label>Locale</label>
+      <input id="locale" placeholder="en-US" />
+
+      <label>Timezone</label>
+      <input id="timezoneId" placeholder="America/Chicago" />
+
+      <label>Timeout (ms)</label>
+      <input id="timeoutMs" type="number" min="1000" step="1000" />
+
+      <label>Rotate Profile Every (requests)</label>
+      <input id="rotateProfileEveryNRequests" type="number" min="0" step="1" placeholder="0 = disabled" />
+
+      <label class="checkbox">
+        <input id="headless" type="checkbox" />
+        <span>Headless mode</span>
+      </label>
+      <label class="checkbox">
+        <input id="advancedFingerprintMode" type="checkbox" />
+        <span>Advanced fingerprint mode</span>
+      </label>
+      <label class="checkbox">
+        <input id="usePlaywrightWithFingerprints" type="checkbox" />
+        <span>Use playwright-with-fingerprints engine</span>
+      </label>
+      <label class="checkbox">
+        <input id="keepBrowserOpenOnFinish" type="checkbox" />
+        <span>Keep browser open after run completes</span>
+      </label>
+      <label class="checkbox">
+        <input id="rotateFingerprintWithProfile" type="checkbox" />
+        <span>Rotate fingerprint preset with profile recreation</span>
+      </label>
+
+      <div class="row">
+        <button id="saveConfigBtn" class="ghost">Save Setup</button>
+        <button id="testProxyBtn" class="ghost">Test Proxy</button>
+      </div>
+      <p id="proxyTestResult" class="muted"></p>
+    </aside>
+  </main>
+
+  <section class="panel runs-panel">
+    <div class="panel-head">
+      <h2>Runs</h2>
+      <button id="refreshRunsBtn" class="ghost">Refresh</button>
+    </div>
+    <div id="runsList" class="runs-list"></div>
+    <h3>Run Logs</h3>
+    <pre id="runLogs" class="logs"></pre>
+  </section>
+
+  <div id="apiDocsModal" class="docs-modal hidden" role="dialog" aria-modal="true" aria-labelledby="apiDocsTitle">
+    <div class="docs-panel">
+      <div class="panel-head">
+        <h2 id="apiDocsTitle">API Documentation</h2>
+        <button id="closeApiDocsBtn" class="ghost">Close</button>
+      </div>
+
+      <p class="muted">Base URL: <code>http://localhost:4300</code> (or your configured port)</p>
+
+      <div class="docs-card">
+        <h3>Run Script Sync (GET)</h3>
+        <p class="muted">Runs one script and returns JSON result directly. Extra query params become <code>input</code> in script.</p>
+        <pre id="doc-run-sync" class="logs docs-code">curl "http://localhost:4300/api/run-sync?scriptName=ai_overview.js&amp;request=closest%20planet&amp;noProxy=true&amp;includeLogs=true"</pre>
+        <button class="ghost small copy-btn" data-copy-target="doc-run-sync">Copy</button>
+      </div>
+
+      <div class="docs-card">
+        <h3>Run Script Async (POST)</h3>
+        <p class="muted">Queues run and returns run id. Use this from agents/workers.</p>
+        <pre id="doc-run-async" class="logs docs-code">curl -X POST "http://localhost:4300/api/scripts/run" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "ai_overview.js",
+    "input": {
+      "request": "closest planet to earth",
+      "noProxy": true
+    }
+  }'</pre>
+        <button class="ghost small copy-btn" data-copy-target="doc-run-async">Copy</button>
+      </div>
+
+      <div class="docs-card">
+        <h3>Poll Runs</h3>
+        <pre id="doc-runs-list" class="logs docs-code">curl "http://localhost:4300/api/runs"
+curl "http://localhost:4300/api/runs/&lt;runId&gt;"</pre>
+        <button class="ghost small copy-btn" data-copy-target="doc-runs-list">Copy</button>
+      </div>
+
+      <div class="docs-card">
+        <h3>Stop Active Run</h3>
+        <pre id="doc-run-stop" class="logs docs-code">curl -X POST "http://localhost:4300/api/runs/&lt;runId&gt;/stop"</pre>
+        <button class="ghost small copy-btn" data-copy-target="doc-run-stop">Copy</button>
+      </div>
+
+      <div class="docs-card">
+        <h3>Read / Save Browser Config</h3>
+        <pre id="doc-config-get" class="logs docs-code">curl "http://localhost:4300/api/config"</pre>
+        <button class="ghost small copy-btn" data-copy-target="doc-config-get">Copy</button>
+        <pre id="doc-config-post" class="logs docs-code">curl -X POST "http://localhost:4300/api/config" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "profileName": "default",
+    "browserEngine": "chrome",
+    "proxy": "user:pass@host:port",
+    "headless": false,
+    "timeoutMs": 120000,
+    "rotateProfileEveryNRequests": 5,
+    "rotateFingerprintWithProfile": true
+  }'</pre>
+        <button class="ghost small copy-btn" data-copy-target="doc-config-post">Copy</button>
+      </div>
+
+      <div class="docs-card">
+        <h3>Script File CRUD</h3>
+        <pre id="doc-script-crud" class="logs docs-code">curl "http://localhost:4300/api/scripts"
+curl "http://localhost:4300/api/scripts/example.js"
+curl -X PUT "http://localhost:4300/api/scripts/new_script.js" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"log(\"hello\")"}'
+curl -X DELETE "http://localhost:4300/api/scripts/new_script.js"</pre>
+        <button class="ghost small copy-btn" data-copy-target="doc-script-crud">Copy</button>
+      </div>
+
+      <div class="docs-card">
+        <h3>Proxy + Profile Utilities</h3>
+        <pre id="doc-utils" class="logs docs-code">curl -X POST "http://localhost:4300/api/config/proxy/test" \
+  -H "Content-Type: application/json" \
+  -d '{"proxy":"user:pass@host:port"}'
+
+curl -X POST "http://localhost:4300/api/profile/recreate" \
+  -H "Content-Type: application/json" \
+  -d '{"profileName":"default"}'</pre>
+        <button class="ghost small copy-btn" data-copy-target="doc-utils">Copy</button>
+      </div>
+
+      <div class="docs-card">
+        <h3>Agent Input Contract</h3>
+        <pre id="doc-agent-contract" class="logs docs-code">Execution context inside script:
+- page, context, browser, playwright
+- log(...args), sleep(ms)
+- config (resolved run config)
+- input (variables from UI/API)
+- setResult(value) optional explicit result
+
+Recommended script return JSON:
+{
+  "ok": true,
+  "data": "...",
+  "error": null
+}</pre>
+        <button class="ghost small copy-btn" data-copy-target="doc-agent-contract">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
