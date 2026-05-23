@@ -46,6 +46,22 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
+if command -v apt-get >/dev/null 2>&1; then
+  SUDO=""
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+    if command -v sudo >/dev/null 2>&1; then
+      SUDO="sudo"
+    else
+      echo "sudo is required for apt package install. Install sudo or run as root." >&2
+      exit 1
+    fi
+  fi
+
+  echo "[0/5] Installing system build dependencies (Ubuntu/Debian)..."
+  ${SUDO} apt-get update
+  ${SUDO} apt-get install -y build-essential make g++ python3 pkg-config
+fi
+
 echo "[1/5] Installing npm dependencies..."
 npm install
 
