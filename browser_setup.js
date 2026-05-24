@@ -266,6 +266,39 @@ async function injectAdvancedFingerprint(context, options = {}) {
 
 }
 
+function parseLimitedModeRules(raw) {
+  return String(raw || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim().toLowerCase())
+    .filter((line) => line && !line.startsWith("#"));
+}
+
+async function applyLimitedMode(context, rawRules) {
+  const rules = parseLimitedModeRules(rawRules);
+  if (!rules.length) return { enabled: false, rulesCount: 0 };
+
+  await context.route("**/*", async (route) => {
+    const url = String(route.request().url() || "").toLowerCase();
+    const shouldBlock = rules.some((rule) => url.includes(rule));
+    if (shouldBlock) {
+      try {
+        await route.abort("blockedbyclient");
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    try {
+      await route.continue();
+    } catch {
+      // ignore
+    }
+  });
+
+  return { enabled: true, rulesCount: rules.length };
+}
+
 export async function launchBrowserSession(options = {}) {
   const {
     profileName = "default",
@@ -279,6 +312,8 @@ export async function launchBrowserSession(options = {}) {
     timezoneId = "America/Chicago",
     advancedFingerprintMode = true,
     usePlaywrightWithFingerprints = true,
+    limitedModeEnabled = false,
+    limitedModeRules = "",
     ephemeral = false
   } = options;
 
@@ -408,6 +443,10 @@ export async function launchBrowserSession(options = {}) {
 
   if (!context) {
     throw new Error("Failed to create browser context");
+  }
+
+  if (limitedModeEnabled) {
+    await applyLimitedMode(context, limitedModeRules);
   }
 
   if (advancedFingerprintMode && !useChromeChannel && !useCamoufox) {

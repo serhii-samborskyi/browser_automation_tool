@@ -34,6 +34,81 @@ const DEFAULT_CONFIG = {
   advancedFingerprintMode: true,
   usePlaywrightWithFingerprints: true,
   measureTrafficUsage: false,
+  limitedModeEnabled: false,
+  limitedModeRules: [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".avif",
+    ".svg",
+    ".ico",
+    ".bmp",
+    ".tiff",
+    ".mp4",
+    ".webm",
+    ".mov",
+    ".avi",
+    ".mkv",
+    ".m4v",
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".m4a",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".otf",
+    ".eot",
+    ".css",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com",
+    "doubleclick.net",
+    "googlesyndication.com",
+    "googleadservices.com",
+    "adservice.google.com",
+    "pagead/",
+    "/ads?",
+    "/ads/",
+    "google-analytics.com",
+    "analytics.google.com",
+    "googletagmanager.com",
+    "gtag/js",
+    "collect?",
+    "/collect",
+    "beacon",
+    "ping",
+    "gstatic.com/images",
+    "gstatic.com/og//js",
+    "gstatic.com/og//ss",
+    "ssl.gstatic.com",
+    "www.gstatic.com/images",
+    "www.gstatic.com/recaptcha",
+    "recaptcha.net",
+    "youtube.com",
+    "youtube-nocookie.com",
+    "ytimg.com",
+    "googlevideo.com",
+    "maps.googleapis.com",
+    "maps.gstatic.com",
+    "google.com/maps",
+    "streetviewpixels-pa.googleapis.com",
+    "favicon",
+    "apple-touch-icon",
+    "manifest.json",
+    "site.webmanifest",
+    "facebook.net",
+    "facebook.com/tr",
+    "connect.facebook.net",
+    "hotjar.com",
+    "clarity.ms",
+    "segment.io",
+    "mixpanel.com",
+    "intercom.io",
+    "intercomcdn.com",
+    "sentry.io"
+  ].join("\n"),
   timeoutMs: 120000,
   keepBrowserOpenOnFinish: false,
   rotateProfileEveryNRequests: 0,
@@ -81,7 +156,9 @@ function readConfig() {
       ...parsed,
       browserEngine: normalizeBrowserEngine(parsed?.browserEngine || DEFAULT_CONFIG.browserEngine),
       rotateProfileEveryNRequests: normalizeRotateEvery(parsed?.rotateProfileEveryNRequests),
-      rotateFingerprintWithProfile: Boolean(parsed?.rotateFingerprintWithProfile)
+      rotateFingerprintWithProfile: Boolean(parsed?.rotateFingerprintWithProfile),
+      limitedModeEnabled: Boolean(parsed?.limitedModeEnabled),
+      limitedModeRules: normalizeLimitedRules(parsed?.limitedModeRules ?? DEFAULT_CONFIG.limitedModeRules)
     };
   } catch {
     return { ...DEFAULT_CONFIG };
@@ -109,6 +186,13 @@ function normalizeRotateEvery(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.floor(n);
+}
+
+function normalizeLimitedRules(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v || "").trim()).filter(Boolean).join("\n");
+  }
+  return String(value || "").replace(/\r\n/g, "\n");
 }
 
 function readRotationState() {
@@ -410,6 +494,8 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
       timezoneId: runConfig.timezoneId,
       advancedFingerprintMode: runConfig.advancedFingerprintMode,
       usePlaywrightWithFingerprints: runConfig.usePlaywrightWithFingerprints,
+      limitedModeEnabled: runConfig.limitedModeEnabled,
+      limitedModeRules: runConfig.limitedModeRules,
       ephemeral: Boolean(ephemeral)
     });
     trafficMeter = await createTrafficMeter(session.page, Boolean(runConfig.measureTrafficUsage), (...args) => pushLog(...args));
@@ -523,6 +609,8 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
         timezoneId: runConfig.timezoneId,
         advancedFingerprintMode: runConfig.advancedFingerprintMode,
         usePlaywrightWithFingerprints: runConfig.usePlaywrightWithFingerprints,
+        limitedModeEnabled: runConfig.limitedModeEnabled,
+        limitedModeRules: runConfig.limitedModeRules,
         ephemeral: Boolean(ephemeral)
       });
       trafficMeter = await createTrafficMeter(session.page, Boolean(runConfig.measureTrafficUsage), (...args) =>
@@ -678,6 +766,14 @@ app.post("/api/config", (req, res) => {
       body.measureTrafficUsage === undefined
         ? DEFAULT_CONFIG.measureTrafficUsage
         : Boolean(body.measureTrafficUsage),
+    limitedModeEnabled:
+      body.limitedModeEnabled === undefined
+        ? DEFAULT_CONFIG.limitedModeEnabled
+        : Boolean(body.limitedModeEnabled),
+    limitedModeRules:
+      body.limitedModeRules === undefined
+        ? DEFAULT_CONFIG.limitedModeRules
+        : normalizeLimitedRules(body.limitedModeRules),
     timeoutMs: Number(body.timeoutMs) || DEFAULT_CONFIG.timeoutMs,
     keepBrowserOpenOnFinish: Boolean(body.keepBrowserOpenOnFinish),
     rotateProfileEveryNRequests: normalizeRotateEvery(body.rotateProfileEveryNRequests),
