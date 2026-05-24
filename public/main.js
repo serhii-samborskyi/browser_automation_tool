@@ -25,6 +25,7 @@ const rotateProfileEveryNRequests = document.getElementById("rotateProfileEveryN
 const headless = document.getElementById("headless");
 const advancedFingerprintMode = document.getElementById("advancedFingerprintMode");
 const usePlaywrightWithFingerprints = document.getElementById("usePlaywrightWithFingerprints");
+const measureTrafficUsage = document.getElementById("measureTrafficUsage");
 const keepBrowserOpenOnFinish = document.getElementById("keepBrowserOpenOnFinish");
 const rotateFingerprintWithProfile = document.getElementById("rotateFingerprintWithProfile");
 const proxyTestResult = document.getElementById("proxyTestResult");
@@ -116,6 +117,7 @@ async function loadConfig() {
   headless.checked = Boolean(cfg.headless);
   advancedFingerprintMode.checked = cfg.advancedFingerprintMode !== false;
   usePlaywrightWithFingerprints.checked = cfg.usePlaywrightWithFingerprints !== false;
+  measureTrafficUsage.checked = Boolean(cfg.measureTrafficUsage);
   keepBrowserOpenOnFinish.checked = Boolean(cfg.keepBrowserOpenOnFinish);
   rotateFingerprintWithProfile.checked = Boolean(cfg.rotateFingerprintWithProfile);
 }
@@ -158,6 +160,7 @@ async function saveConfig() {
       headless: headless.checked,
       advancedFingerprintMode: advancedFingerprintMode.checked,
       usePlaywrightWithFingerprints: usePlaywrightWithFingerprints.checked,
+      measureTrafficUsage: measureTrafficUsage.checked,
       keepBrowserOpenOnFinish: keepBrowserOpenOnFinish.checked,
       rotateFingerprintWithProfile: rotateFingerprintWithProfile.checked
     })
@@ -381,11 +384,15 @@ async function loadRuns() {
     .map((run) => {
       const isActive = run.id === selectedRunId ? " active" : "";
       const stopBtn = run.status === "running" ? `<button class="ghost small stop-run" data-id="${run.id}">Stop</button>` : "";
+      const trafficText =
+        run.traffic && typeof run.traffic.megabytes === "number"
+          ? ` • traffic ${escapeHtml(String(run.traffic.megabytes))} MB`
+          : "";
       return `
         <div class="run-item${isActive}" data-id="${run.id}">
           <div>
             <div><strong>${escapeHtml(run.scriptName)}</strong></div>
-            <div class="muted">${escapeHtml(run.id)} • ${escapeHtml(run.startedAt)}</div>
+            <div class="muted">${escapeHtml(run.id)} • ${escapeHtml(run.startedAt)}${trafficText}</div>
           </div>
           <div class="row">
             <span class="status ${statusClass(run.status)}">${escapeHtml(run.status)}</span>

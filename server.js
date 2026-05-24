@@ -33,6 +33,7 @@ const DEFAULT_CONFIG = {
   timezoneId: "America/Chicago",
   advancedFingerprintMode: true,
   usePlaywrightWithFingerprints: true,
+  measureTrafficUsage: false,
   timeoutMs: 120000,
   keepBrowserOpenOnFinish: false,
   rotateProfileEveryNRequests: 0,
@@ -242,6 +243,7 @@ function makeRunSummary(run) {
     finishedAt: run.finishedAt,
     error: run.error,
     timeoutMs: run.timeoutMs,
+    traffic: run.traffic || null,
     ephemeral: run.ephemeral,
     keepBrowserOpenOnFinish: run.keepBrowserOpenOnFinish,
     logCount: run.logs.length
@@ -286,6 +288,86 @@ async function evictOldRunsIfNeeded(currentRunId) {
   }
 }
 
+async function createTrafficMeter(page, enabled, logFn = () => {}) {
+  if (!enabled) {
+    return {
+      stop: async () => {},
+      getStats: () => null
+    };
+  }
+
+  let totalBytes = 0;
+  let requestCount = 0;
+  let responseCount = 0;
+  let method = "headers-content-length";
+  let cdp = null;
+  const cleanups = [];
+
+  const onRequest = () => {
+    requestCount += 1;
+  };
+  page.on("request", onRequest);
+  cleanups.push(() => page.off("request", onRequest));
+
+  const onResponseCount = () => {
+    responseCount += 1;
+  };
+  page.on("response", onResponseCount);
+  cleanups.push(() => page.off("response", onResponseCount));
+
+  try {
+    cdp = await page.context().newCDPSession(page);
+    await cdp.send("Network.enable");
+    method = "cdp-encoded-data-length";
+    const onLoadingFinished = (event) => {
+      const n = Number(event?.encodedDataLength || 0);
+      if (Number.isFinite(n) && n > 0) totalBytes += n;
+    };
+    cdp.on("Network.loadingFinished", onLoadingFinished);
+    cleanups.push(() => cdp.off("Network.loadingFinished", onLoadingFinished));
+  } catch (err) {
+    logFn(`[traffic] CDP meter unavailable, fallback to content-length headers: ${err?.message || err}`);
+    const onResponseLength = async (resp) => {
+      try {
+        const headers = resp.headers();
+        const n = Number(headers["content-length"] || 0);
+        if (Number.isFinite(n) && n > 0) totalBytes += n;
+      } catch {
+        // ignore
+      }
+    };
+    page.on("response", onResponseLength);
+    cleanups.push(() => page.off("response", onResponseLength));
+  }
+
+  return {
+    stop: async () => {
+      for (const off of cleanups) {
+        try {
+          off();
+        } catch {
+          // ignore
+        }
+      }
+      if (cdp) {
+        try {
+          await cdp.detach();
+        } catch {
+          // ignore
+        }
+      }
+    },
+    getStats: () => ({
+      enabled: true,
+      method,
+      requestCount,
+      responseCount,
+      bytes: Math.max(0, Math.floor(totalBytes)),
+      megabytes: Number((Math.max(0, totalBytes) / (1024 * 1024)).toFixed(3))
+    })
+  };
+}
+
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
 async function executeScriptSync({ scriptName, code, config, ephemeral, input = {} }) {
@@ -295,6 +377,7 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
   let timeout = null;
   let explicitResult;
   let runConfig = { ...config };
+  let trafficMeter = null;
 
   const pushLog = (...args) => {
     const line = args
@@ -329,6 +412,7 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
       usePlaywrightWithFingerprints: runConfig.usePlaywrightWithFingerprints,
       ephemeral: Boolean(ephemeral)
     });
+    trafficMeter = await createTrafficMeter(session.page, Boolean(runConfig.measureTrafficUsage), (...args) => pushLog(...args));
 
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
     const stopRequested = () => false;
@@ -369,15 +453,22 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
       timeoutPromise
     ]);
 
+    const traffic = trafficMeter.getStats();
     return {
       ok: true,
       scriptName,
       durationMs: Date.now() - started,
       result: explicitResult !== undefined ? explicitResult : returned ?? null,
+      traffic,
       logs
     };
   } finally {
     if (timeout) clearTimeout(timeout);
+    try {
+      await trafficMeter?.stop?.();
+    } catch {
+      // ignore
+    }
     try {
       await session?.close?.();
     } catch {
@@ -398,6 +489,7 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
     timeoutMs: Number(config.timeoutMs) || DEFAULT_CONFIG.timeoutMs,
     ephemeral: Boolean(ephemeral),
     keepBrowserOpenOnFinish: Boolean(config.keepBrowserOpenOnFinish),
+    traffic: null,
     logs: [],
     stopRequested: false,
     stop: null
@@ -411,6 +503,7 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
     let session = null;
     let timeout = null;
     let runConfig = { ...config };
+    let trafficMeter = null;
 
     try {
       run.status = "running";
@@ -432,6 +525,9 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
         usePlaywrightWithFingerprints: runConfig.usePlaywrightWithFingerprints,
         ephemeral: Boolean(ephemeral)
       });
+      trafficMeter = await createTrafficMeter(session.page, Boolean(runConfig.measureTrafficUsage), (...args) =>
+        addRunLog(run, ...args)
+      );
 
       run.stop = async () => {
         run.stopRequested = true;
@@ -497,12 +593,24 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
           addRunLog(run, "[run] result", explicitResult);
         }
       }
+      run.traffic = trafficMeter.getStats();
+      if (run.traffic) {
+        addRunLog(
+          run,
+          `[traffic] ${run.traffic.megabytes} MB (${run.traffic.bytes} bytes), ${run.traffic.requestCount} requests, mode=${run.traffic.method}`
+        );
+      }
     } catch (err) {
       run.status = run.stopRequested ? "stopped" : "failed";
       run.error = err?.stack || err?.message || String(err);
       addRunLog(run, `[run] error: ${run.error}`);
     } finally {
       if (timeout) clearTimeout(timeout);
+      try {
+        await trafficMeter?.stop?.();
+      } catch {
+        // ignore
+      }
       const shouldKeepOpen =
         Boolean(run.keepBrowserOpenOnFinish) &&
         run.status === "done" &&
@@ -566,6 +674,10 @@ app.post("/api/config", (req, res) => {
       body.usePlaywrightWithFingerprints === undefined
         ? DEFAULT_CONFIG.usePlaywrightWithFingerprints
         : Boolean(body.usePlaywrightWithFingerprints),
+    measureTrafficUsage:
+      body.measureTrafficUsage === undefined
+        ? DEFAULT_CONFIG.measureTrafficUsage
+        : Boolean(body.measureTrafficUsage),
     timeoutMs: Number(body.timeoutMs) || DEFAULT_CONFIG.timeoutMs,
     keepBrowserOpenOnFinish: Boolean(body.keepBrowserOpenOnFinish),
     rotateProfileEveryNRequests: normalizeRotateEvery(body.rotateProfileEveryNRequests),
