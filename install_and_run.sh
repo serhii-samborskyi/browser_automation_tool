@@ -59,7 +59,7 @@ if command -v apt-get >/dev/null 2>&1; then
 
   echo "[0/5] Installing system build dependencies (Ubuntu/Debian)..."
   ${SUDO} apt-get update
-  ${SUDO} apt-get install -y build-essential make g++ python3 pkg-config
+  ${SUDO} apt-get install -y build-essential make g++ python3 pkg-config xvfb
 fi
 
 echo "[1/5] Installing npm dependencies..."

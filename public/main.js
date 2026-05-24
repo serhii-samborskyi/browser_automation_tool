@@ -40,6 +40,7 @@ const runScriptBtn = document.getElementById("runScriptBtn");
 const saveConfigBtn = document.getElementById("saveConfigBtn");
 const testProxyBtn = document.getElementById("testProxyBtn");
 const refreshRunsBtn = document.getElementById("refreshRunsBtn");
+const clearRunsBtn = document.getElementById("clearRunsBtn");
 const recreateProfileBtn = document.getElementById("recreateProfileBtn");
 const applyPresetBtn = document.getElementById("applyPresetBtn");
 
@@ -406,6 +407,14 @@ async function loadRuns() {
   }
 }
 
+async function clearRuns() {
+  if (!confirm("Clear all run history and close kept-open run browsers?")) return;
+  await fetchJson("/api/runs/clear", { method: "POST" });
+  selectedRunId = null;
+  runLogs.textContent = "";
+  await loadRuns();
+}
+
 async function loadRunLogs(runId) {
   try {
     const run = await fetchJson(`/api/runs/${encodeURIComponent(runId)}`);
@@ -464,6 +473,7 @@ runScriptBtn.addEventListener("click", runScript);
 saveConfigBtn.addEventListener("click", saveConfig);
 testProxyBtn.addEventListener("click", testProxy);
 refreshRunsBtn.addEventListener("click", loadRuns);
+clearRunsBtn.addEventListener("click", clearRuns);
 recreateProfileBtn.addEventListener("click", recreateProfile);
 applyPresetBtn.addEventListener("click", applySelectedPreset);
 addSyncInputBtn.addEventListener("click", () => addSyncInputRow("", ""));

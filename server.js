@@ -229,6 +229,9 @@ process.on("uncaughtException", (err) => {
 
 const runs = new Map();
 const runOrder = [];
+const MAX_STORED_RUNS = 60;
+const MAX_RUN_LOG_LINES = 800;
+const MAX_SYNC_LOG_LINES = 300;
 
 function makeRunSummary(run) {
   return {
@@ -255,8 +258,31 @@ function addRunLog(run, ...args) {
     line
   });
 
-  if (run.logs.length > 2000) {
-    run.logs.splice(0, run.logs.length - 2000);
+  if (run.logs.length > MAX_RUN_LOG_LINES) {
+    run.logs.splice(0, run.logs.length - MAX_RUN_LOG_LINES);
+  }
+}
+
+async function cleanupRunResources(run) {
+  if (!run) return;
+  if (typeof run.stop === "function") {
+    try {
+      await run.stop();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function evictOldRunsIfNeeded(currentRunId) {
+  while (runOrder.length > MAX_STORED_RUNS) {
+    const dropId = runOrder.pop();
+    if (!dropId || dropId === currentRunId) continue;
+    const dropRun = runs.get(dropId);
+    if (dropRun && dropRun.status === "done" && dropRun.keepBrowserOpenOnFinish) {
+      await cleanupRunResources(dropRun);
+    }
+    runs.delete(dropId);
   }
 }
 
@@ -278,7 +304,7 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
       ts: new Date().toISOString(),
       line
     });
-    if (logs.length > 500) logs.splice(0, logs.length - 500);
+    if (logs.length > MAX_SYNC_LOG_LINES) logs.splice(0, logs.length - MAX_SYNC_LOG_LINES);
   };
 
   const setResult = (value) => {
@@ -379,10 +405,7 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
 
   runs.set(runId, run);
   runOrder.unshift(runId);
-  if (runOrder.length > 100) {
-    const dropId = runOrder.pop();
-    if (dropId && dropId !== runId) runs.delete(dropId);
-  }
+  void evictOldRunsIfNeeded(runId);
 
   (async () => {
     let session = null;
@@ -765,6 +788,23 @@ app.get("/api/runs/:id", (req, res) => {
     ...makeRunSummary(run),
     logs: run.logs
   });
+});
+
+app.post("/api/runs/clear", async (_req, res) => {
+  try {
+    const ids = [...runOrder];
+    for (const id of ids) {
+      const run = runs.get(id);
+      if (run && run.status === "done" && run.keepBrowserOpenOnFinish) {
+        await cleanupRunResources(run);
+      }
+    }
+    runs.clear();
+    runOrder.length = 0;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "Failed to clear runs" });
+  }
 });
 
 app.post("/api/runs/:id/stop", async (req, res) => {
