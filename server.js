@@ -155,20 +155,9 @@ function readConfig() {
       ...DEFAULT_CONFIG,
       ...parsed,
       browserEngine: normalizeBrowserEngine(parsed?.browserEngine || DEFAULT_CONFIG.browserEngine),
-      headless: normalizeBool(parsed?.headless, DEFAULT_CONFIG.headless),
-      advancedFingerprintMode: normalizeBool(parsed?.advancedFingerprintMode, DEFAULT_CONFIG.advancedFingerprintMode),
-      usePlaywrightWithFingerprints: normalizeBool(
-        parsed?.usePlaywrightWithFingerprints,
-        DEFAULT_CONFIG.usePlaywrightWithFingerprints
-      ),
-      measureTrafficUsage: normalizeBool(parsed?.measureTrafficUsage, DEFAULT_CONFIG.measureTrafficUsage),
-      keepBrowserOpenOnFinish: normalizeBool(parsed?.keepBrowserOpenOnFinish, DEFAULT_CONFIG.keepBrowserOpenOnFinish),
       rotateProfileEveryNRequests: normalizeRotateEvery(parsed?.rotateProfileEveryNRequests),
-      rotateFingerprintWithProfile: normalizeBool(
-        parsed?.rotateFingerprintWithProfile,
-        DEFAULT_CONFIG.rotateFingerprintWithProfile
-      ),
-      limitedModeEnabled: normalizeBool(parsed?.limitedModeEnabled, DEFAULT_CONFIG.limitedModeEnabled),
+      rotateFingerprintWithProfile: Boolean(parsed?.rotateFingerprintWithProfile),
+      limitedModeEnabled: Boolean(parsed?.limitedModeEnabled),
       limitedModeRules: normalizeLimitedRules(parsed?.limitedModeRules ?? DEFAULT_CONFIG.limitedModeRules)
     };
   } catch {
@@ -191,16 +180,6 @@ function normalizeBrowserEngine(value) {
 function isTruthy(value) {
   const raw = String(value || "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-}
-
-function normalizeBool(value, fallback = false) {
-  if (value === undefined || value === null) return Boolean(fallback);
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return value !== 0;
-  const raw = String(value).trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(raw)) return true;
-  if (["0", "false", "no", "off", ""].includes(raw)) return false;
-  return Boolean(fallback);
 }
 
 function normalizeRotateEvery(value) {
@@ -768,7 +747,7 @@ app.post("/api/config", (req, res) => {
   const next = writeConfig({
     profileName: String(body.profileName || "default"),
     browserEngine: normalizeBrowserEngine(body.browserEngine || DEFAULT_CONFIG.browserEngine),
-    headless: normalizeBool(body.headless, DEFAULT_CONFIG.headless),
+    headless: Boolean(body.headless),
     proxy: String(body.proxy || ""),
     userAgent: String(body.userAgent || ""),
     viewportWidth: Number(body.viewportWidth) || DEFAULT_CONFIG.viewportWidth,
@@ -778,30 +757,27 @@ app.post("/api/config", (req, res) => {
     advancedFingerprintMode:
       body.advancedFingerprintMode === undefined
         ? DEFAULT_CONFIG.advancedFingerprintMode
-        : normalizeBool(body.advancedFingerprintMode, DEFAULT_CONFIG.advancedFingerprintMode),
+        : Boolean(body.advancedFingerprintMode),
     usePlaywrightWithFingerprints:
       body.usePlaywrightWithFingerprints === undefined
         ? DEFAULT_CONFIG.usePlaywrightWithFingerprints
-        : normalizeBool(body.usePlaywrightWithFingerprints, DEFAULT_CONFIG.usePlaywrightWithFingerprints),
+        : Boolean(body.usePlaywrightWithFingerprints),
     measureTrafficUsage:
       body.measureTrafficUsage === undefined
         ? DEFAULT_CONFIG.measureTrafficUsage
-        : normalizeBool(body.measureTrafficUsage, DEFAULT_CONFIG.measureTrafficUsage),
+        : Boolean(body.measureTrafficUsage),
     limitedModeEnabled:
       body.limitedModeEnabled === undefined
         ? DEFAULT_CONFIG.limitedModeEnabled
-        : normalizeBool(body.limitedModeEnabled, DEFAULT_CONFIG.limitedModeEnabled),
+        : Boolean(body.limitedModeEnabled),
     limitedModeRules:
       body.limitedModeRules === undefined
         ? DEFAULT_CONFIG.limitedModeRules
         : normalizeLimitedRules(body.limitedModeRules),
     timeoutMs: Number(body.timeoutMs) || DEFAULT_CONFIG.timeoutMs,
-    keepBrowserOpenOnFinish: normalizeBool(body.keepBrowserOpenOnFinish, DEFAULT_CONFIG.keepBrowserOpenOnFinish),
+    keepBrowserOpenOnFinish: Boolean(body.keepBrowserOpenOnFinish),
     rotateProfileEveryNRequests: normalizeRotateEvery(body.rotateProfileEveryNRequests),
-    rotateFingerprintWithProfile: normalizeBool(
-      body.rotateFingerprintWithProfile,
-      DEFAULT_CONFIG.rotateFingerprintWithProfile
-    )
+    rotateFingerprintWithProfile: Boolean(body.rotateFingerprintWithProfile)
   });
   res.json(next);
 });
