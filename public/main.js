@@ -11,10 +11,6 @@ const syncResult = document.getElementById("syncResult");
 const apiDocsBtn = document.getElementById("apiDocsBtn");
 const apiDocsModal = document.getElementById("apiDocsModal");
 const closeApiDocsBtn = document.getElementById("closeApiDocsBtn");
-const limitedRulesModal = document.getElementById("limitedRulesModal");
-const closeLimitedRulesBtn = document.getElementById("closeLimitedRulesBtn");
-const saveLimitedRulesBtn = document.getElementById("saveLimitedRulesBtn");
-const editLimitedRulesBtn = document.getElementById("editLimitedRulesBtn");
 
 const profileName = document.getElementById("profileName");
 const browserEngine = document.getElementById("browserEngine");
@@ -30,8 +26,6 @@ const headless = document.getElementById("headless");
 const advancedFingerprintMode = document.getElementById("advancedFingerprintMode");
 const usePlaywrightWithFingerprints = document.getElementById("usePlaywrightWithFingerprints");
 const measureTrafficUsage = document.getElementById("measureTrafficUsage");
-const limitedModeEnabled = document.getElementById("limitedModeEnabled");
-const limitedModeRules = document.getElementById("limitedModeRules");
 const keepBrowserOpenOnFinish = document.getElementById("keepBrowserOpenOnFinish");
 const rotateFingerprintWithProfile = document.getElementById("rotateFingerprintWithProfile");
 const proxyTestResult = document.getElementById("proxyTestResult");
@@ -124,8 +118,6 @@ async function loadConfig() {
   advancedFingerprintMode.checked = cfg.advancedFingerprintMode !== false;
   usePlaywrightWithFingerprints.checked = cfg.usePlaywrightWithFingerprints !== false;
   measureTrafficUsage.checked = Boolean(cfg.measureTrafficUsage);
-  limitedModeEnabled.checked = Boolean(cfg.limitedModeEnabled);
-  limitedModeRules.value = cfg.limitedModeRules || "";
   keepBrowserOpenOnFinish.checked = Boolean(cfg.keepBrowserOpenOnFinish);
   rotateFingerprintWithProfile.checked = Boolean(cfg.rotateFingerprintWithProfile);
 }
@@ -169,8 +161,6 @@ async function saveConfig() {
       advancedFingerprintMode: advancedFingerprintMode.checked,
       usePlaywrightWithFingerprints: usePlaywrightWithFingerprints.checked,
       measureTrafficUsage: measureTrafficUsage.checked,
-      limitedModeEnabled: limitedModeEnabled.checked,
-      limitedModeRules: limitedModeRules.value,
       keepBrowserOpenOnFinish: keepBrowserOpenOnFinish.checked,
       rotateFingerprintWithProfile: rotateFingerprintWithProfile.checked
     })
@@ -497,17 +487,6 @@ addSyncInputBtn.addEventListener("click", () => addSyncInputRow("", ""));
 runSyncBtn.addEventListener("click", runSyncTest);
 apiDocsBtn.addEventListener("click", () => apiDocsModal.classList.remove("hidden"));
 closeApiDocsBtn.addEventListener("click", () => apiDocsModal.classList.add("hidden"));
-editLimitedRulesBtn.addEventListener("click", () => limitedRulesModal.classList.remove("hidden"));
-closeLimitedRulesBtn.addEventListener("click", () => limitedRulesModal.classList.add("hidden"));
-saveLimitedRulesBtn.addEventListener("click", async () => {
-  try {
-    await saveConfig();
-    limitedRulesModal.classList.add("hidden");
-    proxyTestResult.textContent = "Limited mode rules saved.";
-  } catch (err) {
-    proxyTestResult.textContent = err?.message || String(err);
-  }
-});
 apiDocsModal.addEventListener("click", (event) => {
   if (event.target === apiDocsModal) {
     apiDocsModal.classList.add("hidden");
@@ -519,14 +498,8 @@ apiDocsModal.addEventListener("click", (event) => {
   if (!targetId) return;
   copyFromElement(targetId, btn);
 });
-limitedRulesModal.addEventListener("click", (event) => {
-  if (event.target === limitedRulesModal) limitedRulesModal.classList.add("hidden");
-});
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") {
-    apiDocsModal.classList.add("hidden");
-    limitedRulesModal.classList.add("hidden");
-  }
+  if (event.key === "Escape") apiDocsModal.classList.add("hidden");
 });
 
 async function init() {

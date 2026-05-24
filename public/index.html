@@ -115,11 +115,6 @@
         <span>Measure traffic usage per run</span>
       </label>
       <label class="checkbox">
-        <input id="limitedModeEnabled" type="checkbox" />
-        <span>Limited mode (block matching URLs)</span>
-      </label>
-      <button id="editLimitedRulesBtn" class="ghost">Edit URL Block Rules</button>
-      <label class="checkbox">
         <input id="keepBrowserOpenOnFinish" type="checkbox" />
         <span>Keep browser open after run completes</span>
       </label>
@@ -250,20 +245,6 @@ Recommended script return JSON:
   "error": null
 }</pre>
         <button class="ghost small copy-btn" data-copy-target="doc-agent-contract">Copy</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="limitedRulesModal" class="docs-modal hidden" role="dialog" aria-modal="true" aria-labelledby="limitedRulesTitle">
-    <div class="docs-panel">
-      <div class="panel-head">
-        <h2 id="limitedRulesTitle">Limited Mode URL Block Rules</h2>
-        <button id="closeLimitedRulesBtn" class="ghost">Close</button>
-      </div>
-      <p class="muted">One rule per line. Matching is case-insensitive URL substring match.</p>
-      <textarea id="limitedModeRules" rows="20" spellcheck="false"></textarea>
-      <div class="row" style="margin-top: 8px;">
-        <button id="saveLimitedRulesBtn" class="ghost">Save Rules To Setup</button>
       </div>
     </div>
   </div>
