@@ -245,6 +245,9 @@ function makeRunSummary(run) {
     timeoutMs: run.timeoutMs,
     traffic: run.traffic || null,
     ephemeral: run.ephemeral,
+    requestedEphemeral: Boolean(run.requestedEphemeral),
+    fallbackEphemeral: Boolean(run.fallbackEphemeral),
+    fallbackReason: run.fallbackReason || null,
     keepBrowserOpenOnFinish: run.keepBrowserOpenOnFinish,
     logCount: run.logs.length
   };
@@ -262,6 +265,58 @@ function addRunLog(run, ...args) {
 
   if (run.logs.length > MAX_RUN_LOG_LINES) {
     run.logs.splice(0, run.logs.length - MAX_RUN_LOG_LINES);
+  }
+}
+
+function buildLaunchSessionOptions(runConfig, ephemeral) {
+  return {
+    profileName: runConfig.profileName,
+    browserEngine: runConfig.browserEngine,
+    headless: runConfig.headless,
+    proxy: runConfig.proxy,
+    userAgent: runConfig.userAgent,
+    viewportWidth: runConfig.viewportWidth,
+    viewportHeight: runConfig.viewportHeight,
+    locale: runConfig.locale,
+    timezoneId: runConfig.timezoneId,
+    advancedFingerprintMode: runConfig.advancedFingerprintMode,
+    usePlaywrightWithFingerprints: runConfig.usePlaywrightWithFingerprints,
+    ephemeral: Boolean(ephemeral)
+  };
+}
+
+function shouldRetryEphemeralLaunch(err) {
+  const msg = String(err?.stack || err?.message || err || "");
+  const low = msg.toLowerCase();
+  return (
+    msg.includes("ProcessSingleton") ||
+    msg.includes("profile directory is already in use") ||
+    msg.includes("SingletonLock") ||
+    (low.includes("launchpersistentcontext") && low.includes("target page, context or browser has been closed")) ||
+    (low.includes("camoufox") && low.includes("target page, context or browser has been closed"))
+  );
+}
+
+function compactLaunchError(err) {
+  const text = String(err?.message || err || "");
+  const first = text.split("\n").find((line) => String(line || "").trim()) || text;
+  return first.trim();
+}
+
+async function launchSessionWithFallback(runConfig, ephemeral, logFn = () => {}) {
+  try {
+    const session = await launchBrowserSession(buildLaunchSessionOptions(runConfig, ephemeral));
+    return { session, effectiveEphemeral: Boolean(ephemeral), fallbackEphemeral: false, fallbackReason: null };
+  } catch (err) {
+    if (Boolean(ephemeral) || !shouldRetryEphemeralLaunch(err)) throw err;
+    logFn(`[launch] persistent profile failed, retrying ephemeral: ${compactLaunchError(err)}`);
+    const session = await launchBrowserSession(buildLaunchSessionOptions(runConfig, true));
+    return {
+      session,
+      effectiveEphemeral: true,
+      fallbackEphemeral: true,
+      fallbackReason: "Persistent profile launch failed; retried with ephemeral context."
+    };
   }
 }
 
@@ -380,6 +435,9 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
   let explicitResult;
   let runConfig = { ...config };
   let trafficMeter = null;
+  let effectiveEphemeral = Boolean(ephemeral);
+  let fallbackEphemeral = false;
+  let fallbackReason = null;
 
   const pushLog = (...args) => {
     const line = args
@@ -400,20 +458,11 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
     const rotation = await maybeRotateProfileAndFingerprint(runConfig, (...args) => pushLog(...args));
     runConfig = rotation?.config || runConfig;
 
-    session = await launchBrowserSession({
-      profileName: runConfig.profileName,
-      browserEngine: runConfig.browserEngine,
-      headless: runConfig.headless,
-      proxy: runConfig.proxy,
-      userAgent: runConfig.userAgent,
-      viewportWidth: runConfig.viewportWidth,
-      viewportHeight: runConfig.viewportHeight,
-      locale: runConfig.locale,
-      timezoneId: runConfig.timezoneId,
-      advancedFingerprintMode: runConfig.advancedFingerprintMode,
-      usePlaywrightWithFingerprints: runConfig.usePlaywrightWithFingerprints,
-      ephemeral: Boolean(ephemeral)
-    });
+    const launched = await launchSessionWithFallback(runConfig, ephemeral, (...args) => pushLog(...args));
+    session = launched.session;
+    effectiveEphemeral = launched.effectiveEphemeral;
+    fallbackEphemeral = launched.fallbackEphemeral;
+    fallbackReason = launched.fallbackReason;
     trafficMeter = await createTrafficMeter(session.page, Boolean(runConfig.measureTrafficUsage), (...args) => pushLog(...args));
 
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
@@ -447,7 +496,7 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
         playwright,
         (...args) => pushLog(...args),
         sleep,
-        { ...runConfig, ephemeral: Boolean(ephemeral) },
+        { ...runConfig, ephemeral: Boolean(effectiveEphemeral) },
         stopRequested,
         input,
         setResult
@@ -456,7 +505,7 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
     ]);
 
     const traffic = trafficMeter.getStats();
-    return {
+    const out = {
       ok: true,
       scriptName,
       durationMs: Date.now() - started,
@@ -464,6 +513,11 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
       traffic,
       logs
     };
+    if (fallbackEphemeral) {
+      out.fallbackEphemeral = true;
+      out.fallbackReason = fallbackReason;
+    }
+    return out;
   } finally {
     if (timeout) clearTimeout(timeout);
     try {
@@ -490,6 +544,9 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
     error: null,
     timeoutMs: Number(config.timeoutMs) || DEFAULT_CONFIG.timeoutMs,
     ephemeral: Boolean(ephemeral),
+    requestedEphemeral: Boolean(ephemeral),
+    fallbackEphemeral: false,
+    fallbackReason: null,
     keepBrowserOpenOnFinish: Boolean(config.keepBrowserOpenOnFinish),
     traffic: null,
     logs: [],
@@ -513,20 +570,11 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
       const rotation = await maybeRotateProfileAndFingerprint(runConfig, (...args) => addRunLog(run, ...args));
       runConfig = rotation?.config || runConfig;
 
-      session = await launchBrowserSession({
-        profileName: runConfig.profileName,
-        browserEngine: runConfig.browserEngine,
-        headless: runConfig.headless,
-        proxy: runConfig.proxy,
-        userAgent: runConfig.userAgent,
-        viewportWidth: runConfig.viewportWidth,
-        viewportHeight: runConfig.viewportHeight,
-        locale: runConfig.locale,
-        timezoneId: runConfig.timezoneId,
-        advancedFingerprintMode: runConfig.advancedFingerprintMode,
-        usePlaywrightWithFingerprints: runConfig.usePlaywrightWithFingerprints,
-        ephemeral: Boolean(ephemeral)
-      });
+      const launched = await launchSessionWithFallback(runConfig, ephemeral, (...args) => addRunLog(run, ...args));
+      session = launched.session;
+      run.ephemeral = launched.effectiveEphemeral;
+      run.fallbackEphemeral = launched.fallbackEphemeral;
+      run.fallbackReason = launched.fallbackReason;
       trafficMeter = await createTrafficMeter(session.page, Boolean(runConfig.measureTrafficUsage), (...args) =>
         addRunLog(run, ...args)
       );
@@ -577,7 +625,7 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
           playwright,
           log,
           sleep,
-          { ...runConfig, ephemeral: Boolean(ephemeral) },
+          { ...runConfig, ephemeral: Boolean(run.ephemeral) },
           stopRequested,
           input,
           setResult
