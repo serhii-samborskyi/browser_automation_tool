@@ -330,6 +330,8 @@ async function createTrafficMeter(page, enabled, logFn = () => {}) {
     const onResponseLength = async (resp) => {
       try {
         const headers = resp.headers();
+        const cacheHitMarker = String(headers["x-ai-cache"] || "").toLowerCase();
+        if (cacheHitMarker === "hit") return;
         const n = Number(headers["content-length"] || 0);
         if (Number.isFinite(n) && n > 0) totalBytes += n;
       } catch {
