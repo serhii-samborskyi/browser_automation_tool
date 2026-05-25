@@ -7,6 +7,34 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <section class="metrics-bar panel">
+    <div class="metric-card">
+      <span class="metric-label">Processes</span>
+      <strong id="metricProcesses" class="metric-value">-</strong>
+      <small id="metricQueue" class="metric-sub">queued: -</small>
+    </div>
+    <div class="metric-card">
+      <span class="metric-label">CPU</span>
+      <strong id="metricCpu" class="metric-value">-</strong>
+      <small id="metricCpuSub" class="metric-sub">node: -</small>
+    </div>
+    <div class="metric-card">
+      <span class="metric-label">RAM</span>
+      <strong id="metricRam" class="metric-value">-</strong>
+      <small id="metricRamSub" class="metric-sub">node RSS: -</small>
+    </div>
+    <div class="metric-card">
+      <span class="metric-label">GPU</span>
+      <strong id="metricGpu" class="metric-value">-</strong>
+      <small id="metricGpuSub" class="metric-sub">mem: -</small>
+    </div>
+    <div class="metric-card">
+      <span class="metric-label">DISK</span>
+      <strong id="metricDisk" class="metric-value">-</strong>
+      <small id="metricDiskSub" class="metric-sub">used: -</small>
+    </div>
+  </section>
+
   <main class="layout">
     <aside class="panel scripts-panel">
       <div class="panel-head">

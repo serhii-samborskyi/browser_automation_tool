@@ -19,6 +19,41 @@ body {
   background: radial-gradient(circle at top left, #effaf6 0%, #f3f5f8 40%, #eef2f9 100%);
 }
 
+.metrics-bar {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px;
+}
+
+.metric-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fcff 100%);
+}
+
+.metric-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.metric-value {
+  display: block;
+  font-size: 14px;
+}
+
+.metric-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
 .layout {
   display: grid;
   grid-template-columns: 280px 1fr 340px;
@@ -258,6 +293,7 @@ button.danger { color: var(--danger); }
 }
 
 @media (max-width: 1100px) {
+  .metrics-bar { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
   .layout { grid-template-columns: 1fr; }
   #scriptEditor { min-height: 44vh; }
   .sync-row { grid-template-columns: 1fr; }

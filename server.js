@@ -1,8 +1,10 @@
 import express from "express";
 import bodyParser from "body-parser";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import util from "util";
+import { execFile } from "child_process";
 import { fileURLToPath } from "url";
 import * as playwright from "playwright";
 import {
@@ -341,6 +343,197 @@ async function acquireRunSlot() {
       resolve
     });
   });
+}
+
+const execFileAsync = util.promisify(execFile);
+const METRICS_TTL_MS = 2000;
+let metricsCache = { ts: 0, data: null, pending: null };
+let previousCpuSample = null;
+let previousProcCpu = process.cpuUsage();
+let previousProcHr = process.hrtime.bigint();
+
+function snapshotCpuTimes() {
+  const cpus = os.cpus() || [];
+  let idle = 0;
+  let total = 0;
+  for (const cpu of cpus) {
+    const times = cpu?.times || {};
+    const cpuIdle = Number(times.idle || 0);
+    const cpuTotal =
+      Number(times.user || 0) +
+      Number(times.nice || 0) +
+      Number(times.sys || 0) +
+      Number(times.idle || 0) +
+      Number(times.irq || 0);
+    idle += cpuIdle;
+    total += cpuTotal;
+  }
+  return { idle, total, cores: Math.max(1, cpus.length) };
+}
+
+function clampPercent(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function formatNumber(value, digits = 1) {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(digits));
+}
+
+function readCpuMetrics() {
+  const nowSample = snapshotCpuTimes();
+  const nowProcCpu = process.cpuUsage();
+  const nowHr = process.hrtime.bigint();
+
+  if (!previousCpuSample) {
+    previousCpuSample = nowSample;
+    previousProcCpu = nowProcCpu;
+    previousProcHr = nowHr;
+    return {
+      systemPercent: 0,
+      processPercent: 0,
+      load1: formatNumber(os.loadavg?.()[0] || 0, 2),
+      cores: nowSample.cores
+    };
+  }
+
+  const deltaIdle = nowSample.idle - previousCpuSample.idle;
+  const deltaTotal = nowSample.total - previousCpuSample.total;
+  const systemPercent = deltaTotal > 0 ? ((deltaTotal - deltaIdle) / deltaTotal) * 100 : 0;
+
+  const procDeltaUser = nowProcCpu.user - previousProcCpu.user;
+  const procDeltaSys = nowProcCpu.system - previousProcCpu.system;
+  const procDeltaUs = Math.max(0, procDeltaUser + procDeltaSys);
+  const elapsedUs = Number((nowHr - previousProcHr) / 1000n);
+  const processPercentOfCore = elapsedUs > 0 ? (procDeltaUs / elapsedUs) * 100 : 0;
+  const processPercent = processPercentOfCore / Math.max(1, nowSample.cores);
+
+  previousCpuSample = nowSample;
+  previousProcCpu = nowProcCpu;
+  previousProcHr = nowHr;
+
+  return {
+    systemPercent: formatNumber(clampPercent(systemPercent), 1),
+    processPercent: formatNumber(clampPercent(processPercent), 1),
+    load1: formatNumber(os.loadavg?.()[0] || 0, 2),
+    cores: nowSample.cores
+  };
+}
+
+function readRamMetrics() {
+  const totalBytes = Number(os.totalmem() || 0);
+  const freeBytes = Number(os.freemem() || 0);
+  const usedBytes = Math.max(0, totalBytes - freeBytes);
+  const usedPercent = totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0;
+  const proc = process.memoryUsage();
+  return {
+    totalBytes,
+    usedBytes,
+    freeBytes,
+    usedPercent: formatNumber(clampPercent(usedPercent), 1),
+    processRssBytes: Number(proc?.rss || 0),
+    processHeapUsedBytes: Number(proc?.heapUsed || 0)
+  };
+}
+
+async function readDiskMetrics() {
+  try {
+    const { stdout } = await execFileAsync("df", ["-kP", "/"]);
+    const lines = String(stdout || "")
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+    if (lines.length < 2) return null;
+    const parts = lines[1].trim().split(/\s+/);
+    if (parts.length < 6) return null;
+    const totalBytes = Number(parts[1]) * 1024;
+    const usedBytes = Number(parts[2]) * 1024;
+    const availableBytes = Number(parts[3]) * 1024;
+    const usedPercent = Number(String(parts[4] || "").replace("%", ""));
+    return {
+      path: "/",
+      totalBytes: Number.isFinite(totalBytes) ? totalBytes : 0,
+      usedBytes: Number.isFinite(usedBytes) ? usedBytes : 0,
+      availableBytes: Number.isFinite(availableBytes) ? availableBytes : 0,
+      usedPercent: formatNumber(clampPercent(usedPercent), 1)
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function readGpuMetrics() {
+  try {
+    const { stdout } = await execFileAsync("nvidia-smi", [
+      "--query-gpu=utilization.gpu,memory.used,memory.total",
+      "--format=csv,noheader,nounits"
+    ]);
+    const rows = String(stdout || "")
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(",").map((v) => Number(v.trim())));
+    if (!rows.length) return { available: false, source: "nvidia-smi", reason: "No GPU rows" };
+
+    const gpuCount = rows.length;
+    const utilAvg =
+      rows.reduce((sum, row) => sum + (Number.isFinite(row[0]) ? row[0] : 0), 0) / Math.max(1, gpuCount);
+    const memoryUsedMiB = rows.reduce((sum, row) => sum + (Number.isFinite(row[1]) ? row[1] : 0), 0);
+    const memoryTotalMiB = rows.reduce((sum, row) => sum + (Number.isFinite(row[2]) ? row[2] : 0), 0);
+    const memoryUsedPercent = memoryTotalMiB > 0 ? (memoryUsedMiB / memoryTotalMiB) * 100 : 0;
+
+    return {
+      available: true,
+      source: "nvidia-smi",
+      gpuCount,
+      utilizationPercent: formatNumber(clampPercent(utilAvg), 1),
+      memoryUsedMiB: formatNumber(memoryUsedMiB, 1),
+      memoryTotalMiB: formatNumber(memoryTotalMiB, 1),
+      memoryUsedPercent: formatNumber(clampPercent(memoryUsedPercent), 1)
+    };
+  } catch {
+    return { available: false, source: "nvidia-smi", reason: "nvidia-smi unavailable" };
+  }
+}
+
+async function collectServerMetrics() {
+  const [disk, gpu] = await Promise.all([readDiskMetrics(), readGpuMetrics()]);
+  return {
+    now: new Date().toISOString(),
+    runs: getRunSlotStats(),
+    processes: {
+      active: activeRunSlots,
+      queued: runSlotQueue.length
+    },
+    cpu: readCpuMetrics(),
+    ram: readRamMetrics(),
+    disk,
+    gpu
+  };
+}
+
+async function getServerMetricsCached() {
+  const now = Date.now();
+  if (metricsCache.data && now - metricsCache.ts < METRICS_TTL_MS) {
+    return metricsCache.data;
+  }
+  if (metricsCache.pending) {
+    return await metricsCache.pending;
+  }
+  metricsCache.pending = (async () => {
+    const data = await collectServerMetrics();
+    metricsCache = { ts: Date.now(), data, pending: null };
+    return data;
+  })();
+  try {
+    return await metricsCache.pending;
+  } finally {
+    if (metricsCache.pending) {
+      metricsCache.pending = null;
+    }
+  }
 }
 
 function makeRunSummary(run) {
@@ -829,6 +1022,15 @@ app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, now: new Date().toISOString(), ...getRunSlotStats() });
+});
+
+app.get("/api/metrics", async (_req, res) => {
+  try {
+    const metrics = await getServerMetricsCached();
+    res.json({ ok: true, ...metrics });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "Failed to collect metrics" });
+  }
 });
 
 app.get("/api/config", (_req, res) => {

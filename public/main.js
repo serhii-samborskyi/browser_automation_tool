@@ -11,6 +11,16 @@ const syncResult = document.getElementById("syncResult");
 const apiDocsBtn = document.getElementById("apiDocsBtn");
 const apiDocsModal = document.getElementById("apiDocsModal");
 const closeApiDocsBtn = document.getElementById("closeApiDocsBtn");
+const metricProcesses = document.getElementById("metricProcesses");
+const metricQueue = document.getElementById("metricQueue");
+const metricCpu = document.getElementById("metricCpu");
+const metricCpuSub = document.getElementById("metricCpuSub");
+const metricRam = document.getElementById("metricRam");
+const metricRamSub = document.getElementById("metricRamSub");
+const metricGpu = document.getElementById("metricGpu");
+const metricGpuSub = document.getElementById("metricGpuSub");
+const metricDisk = document.getElementById("metricDisk");
+const metricDiskSub = document.getElementById("metricDiskSub");
 
 const profileName = document.getElementById("profileName");
 const browserEngine = document.getElementById("browserEngine");
@@ -80,6 +90,26 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function formatBytes(bytes) {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = n;
+  let idx = 0;
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024;
+    idx += 1;
+  }
+  const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(digits)} ${units[idx]}`;
+}
+
+function formatPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  return `${n.toFixed(1)}%`;
+}
+
 async function copyFromElement(targetId, btn) {
   const el = document.getElementById(targetId);
   if (!el) return;
@@ -124,6 +154,47 @@ async function loadConfig() {
   measureTrafficUsage.checked = Boolean(cfg.measureTrafficUsage);
   keepBrowserOpenOnFinish.checked = Boolean(cfg.keepBrowserOpenOnFinish);
   rotateFingerprintWithProfile.checked = Boolean(cfg.rotateFingerprintWithProfile);
+}
+
+async function loadMetrics() {
+  try {
+    const m = await fetchJson("/api/metrics");
+    metricProcesses.textContent = String(m?.processes?.active ?? m?.runs?.activeRunSlots ?? 0);
+    metricQueue.textContent = `queued: ${String(m?.processes?.queued ?? m?.runs?.queuedRunSlots ?? 0)}`;
+
+    metricCpu.textContent = formatPercent(m?.cpu?.systemPercent);
+    metricCpuSub.textContent = `node: ${formatPercent(m?.cpu?.processPercent)} | cores: ${Number(m?.cpu?.cores || 0)}`;
+
+    metricRam.textContent = `${formatPercent(m?.ram?.usedPercent)} (${formatBytes(m?.ram?.usedBytes)})`;
+    metricRamSub.textContent = `node RSS: ${formatBytes(m?.ram?.processRssBytes)}`;
+
+    if (m?.gpu?.available) {
+      metricGpu.textContent = formatPercent(m?.gpu?.utilizationPercent);
+      metricGpuSub.textContent = `mem: ${formatPercent(m?.gpu?.memoryUsedPercent)} (${Number(m?.gpu?.memoryUsedMiB || 0).toFixed(0)} / ${Number(m?.gpu?.memoryTotalMiB || 0).toFixed(0)} MiB)`;
+    } else {
+      metricGpu.textContent = "N/A";
+      metricGpuSub.textContent = "No NVIDIA GPU stats";
+    }
+
+    if (m?.disk) {
+      metricDisk.textContent = formatPercent(m.disk.usedPercent);
+      metricDiskSub.textContent = `used: ${formatBytes(m.disk.usedBytes)} / ${formatBytes(m.disk.totalBytes)}`;
+    } else {
+      metricDisk.textContent = "N/A";
+      metricDiskSub.textContent = "Disk stats unavailable";
+    }
+  } catch {
+    metricProcesses.textContent = "-";
+    metricQueue.textContent = "queued: -";
+    metricCpu.textContent = "-";
+    metricCpuSub.textContent = "node: -";
+    metricRam.textContent = "-";
+    metricRamSub.textContent = "node RSS: -";
+    metricGpu.textContent = "-";
+    metricGpuSub.textContent = "mem: -";
+    metricDisk.textContent = "-";
+    metricDiskSub.textContent = "used: -";
+  }
 }
 
 async function loadPresets() {
@@ -509,10 +580,11 @@ document.addEventListener("keydown", (event) => {
 });
 
 async function init() {
-  await Promise.all([loadConfig(), loadPresets(), loadScripts(), loadRuns()]);
+  await Promise.all([loadConfig(), loadPresets(), loadScripts(), loadRuns(), loadMetrics()]);
   addSyncInputRow("var", "");
   addSyncInputRow("var2", "");
   setInterval(loadRuns, 2500);
+  setInterval(loadMetrics, 2500);
 }
 
 init().catch((err) => {
