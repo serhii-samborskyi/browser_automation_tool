@@ -233,6 +233,75 @@ const runOrder = [];
 const MAX_STORED_RUNS = 60;
 const MAX_RUN_LOG_LINES = 800;
 const MAX_SYNC_LOG_LINES = 300;
+const MAX_CONCURRENT_RUN_SLOTS = Math.max(1, Number(process.env.MAX_CONCURRENT_RUN_SLOTS) || 4);
+const MAX_QUEUED_RUN_SLOTS = Math.max(1, Number(process.env.MAX_QUEUED_RUN_SLOTS) || 200);
+let activeRunSlots = 0;
+const runSlotQueue = [];
+
+function getRunSlotStats() {
+  return {
+    maxConcurrentRunSlots: MAX_CONCURRENT_RUN_SLOTS,
+    maxQueuedRunSlots: MAX_QUEUED_RUN_SLOTS,
+    activeRunSlots,
+    queuedRunSlots: runSlotQueue.length
+  };
+}
+
+function createQueueFullError() {
+  const err = new Error(
+    `Server is busy: run queue is full (${MAX_QUEUED_RUN_SLOTS}). Reduce concurrency or retry shortly.`
+  );
+  err.code = "QUEUE_FULL";
+  return err;
+}
+
+function dispatchRunSlotQueue() {
+  while (activeRunSlots < MAX_CONCURRENT_RUN_SLOTS && runSlotQueue.length) {
+    const waiter = runSlotQueue.shift();
+    if (!waiter) continue;
+
+    activeRunSlots += 1;
+    const waitedMs = Date.now() - waiter.enqueuedAt;
+
+    waiter.resolve({
+      waitedMs,
+      release: () => {
+        if (waiter.released) return;
+        waiter.released = true;
+        activeRunSlots = Math.max(0, activeRunSlots - 1);
+        dispatchRunSlotQueue();
+      }
+    });
+  }
+}
+
+async function acquireRunSlot() {
+  if (activeRunSlots < MAX_CONCURRENT_RUN_SLOTS) {
+    activeRunSlots += 1;
+    let released = false;
+    return {
+      waitedMs: 0,
+      release: () => {
+        if (released) return;
+        released = true;
+        activeRunSlots = Math.max(0, activeRunSlots - 1);
+        dispatchRunSlotQueue();
+      }
+    };
+  }
+
+  if (runSlotQueue.length >= MAX_QUEUED_RUN_SLOTS) {
+    throw createQueueFullError();
+  }
+
+  return await new Promise((resolve) => {
+    runSlotQueue.push({
+      enqueuedAt: Date.now(),
+      released: false,
+      resolve
+    });
+  });
+}
 
 function makeRunSummary(run) {
   return {
@@ -432,6 +501,7 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
   const logs = [];
   let session = null;
   let timeout = null;
+  let slot = null;
   let explicitResult;
   let runConfig = { ...config };
   let trafficMeter = null;
@@ -455,6 +525,11 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
   };
 
   try {
+    slot = await acquireRunSlot();
+    if (slot.waitedMs > 0) {
+      pushLog(`[queue] waited ${slot.waitedMs}ms for available run slot`);
+    }
+
     const rotation = await maybeRotateProfileAndFingerprint(runConfig, (...args) => pushLog(...args));
     runConfig = rotation?.config || runConfig;
 
@@ -530,6 +605,11 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
     } catch {
       // ignore close errors
     }
+    try {
+      slot?.release?.();
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -561,12 +641,17 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
   (async () => {
     let session = null;
     let timeout = null;
+    let slot = null;
     let runConfig = { ...config };
     let trafficMeter = null;
 
     try {
+      slot = await acquireRunSlot();
       run.status = "running";
       addRunLog(run, `[run] starting script ${scriptName}`);
+      if (slot.waitedMs > 0) {
+        addRunLog(run, `[queue] waited ${slot.waitedMs}ms for available run slot`);
+      }
       const rotation = await maybeRotateProfileAndFingerprint(runConfig, (...args) => addRunLog(run, ...args));
       runConfig = rotation?.config || runConfig;
 
@@ -674,6 +759,11 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
       } else {
         addRunLog(run, "[run] keepBrowserOpenOnFinish=true, browser left open");
       }
+      try {
+        slot?.release?.();
+      } catch {
+        // ignore
+      }
       run.finishedAt = new Date().toISOString();
       if (!shouldKeepOpen) run.stop = null;
     }
@@ -697,7 +787,7 @@ app.use(bodyParser.json({ limit: "4mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, now: new Date().toISOString() });
+  res.json({ ok: true, now: new Date().toISOString(), ...getRunSlotStats() });
 });
 
 app.get("/api/config", (_req, res) => {
@@ -853,6 +943,13 @@ async function handleRunSync(req, res) {
     if (!includeLogs) delete result.logs;
     res.json(result);
   } catch (err) {
+    if (err?.code === "QUEUE_FULL") {
+      return res.status(503).set("Retry-After", "3").json({
+        ok: false,
+        error: err?.message || "Server is busy",
+        ...getRunSlotStats()
+      });
+    }
     res.status(500).json({
       ok: false,
       error: err?.stack || err?.message || String(err)
