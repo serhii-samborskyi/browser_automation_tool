@@ -132,6 +132,9 @@
       <label>Max Queued Runs</label>
       <input id="maxQueuedRunSlots" type="number" min="1" step="1" />
 
+      <label>Safe Mode Min Free RAM (GB)</label>
+      <input id="safeModeMinFreeRamGb" type="number" min="1" step="1" />
+
       <label class="checkbox">
         <input id="headless" type="checkbox" />
         <span>Headless mode</span>
@@ -155,6 +158,10 @@
       <label class="checkbox">
         <input id="rotateFingerprintWithProfile" type="checkbox" />
         <span>Rotate fingerprint preset with profile recreation</span>
+      </label>
+      <label class="checkbox">
+        <input id="safeModeEnabled" type="checkbox" />
+        <span>Safe mode (RAM guard + Camoufox shared browser)</span>
       </label>
 
       <div class="row">
@@ -234,6 +241,8 @@ curl "http://localhost:4300/api/runs/&lt;runId&gt;"</pre>
     "proxy": "user:pass@host:port",
     "headless": false,
     "timeoutMs": 120000,
+    "safeModeEnabled": true,
+    "safeModeMinFreeRamGb": 4,
     "maxConcurrentRunSlots": 4,
     "maxQueuedRunSlots": 200,
     "rotateProfileEveryNRequests": 5,

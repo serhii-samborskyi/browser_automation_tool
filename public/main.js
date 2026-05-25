@@ -34,12 +34,14 @@ const timeoutMs = document.getElementById("timeoutMs");
 const rotateProfileEveryNRequests = document.getElementById("rotateProfileEveryNRequests");
 const maxConcurrentRunSlots = document.getElementById("maxConcurrentRunSlots");
 const maxQueuedRunSlots = document.getElementById("maxQueuedRunSlots");
+const safeModeMinFreeRamGb = document.getElementById("safeModeMinFreeRamGb");
 const headless = document.getElementById("headless");
 const advancedFingerprintMode = document.getElementById("advancedFingerprintMode");
 const usePlaywrightWithFingerprints = document.getElementById("usePlaywrightWithFingerprints");
 const measureTrafficUsage = document.getElementById("measureTrafficUsage");
 const keepBrowserOpenOnFinish = document.getElementById("keepBrowserOpenOnFinish");
 const rotateFingerprintWithProfile = document.getElementById("rotateFingerprintWithProfile");
+const safeModeEnabled = document.getElementById("safeModeEnabled");
 const proxyTestResult = document.getElementById("proxyTestResult");
 const fingerprintPreset = document.getElementById("fingerprintPreset");
 
@@ -148,12 +150,14 @@ async function loadConfig() {
   rotateProfileEveryNRequests.value = Math.max(0, Number(cfg.rotateProfileEveryNRequests) || 0);
   maxConcurrentRunSlots.value = Math.max(1, Number(cfg.maxConcurrentRunSlots) || 4);
   maxQueuedRunSlots.value = Math.max(1, Number(cfg.maxQueuedRunSlots) || 200);
+  safeModeMinFreeRamGb.value = Math.max(1, Number(cfg.safeModeMinFreeRamGb) || 4);
   headless.checked = Boolean(cfg.headless);
   advancedFingerprintMode.checked = cfg.advancedFingerprintMode !== false;
   usePlaywrightWithFingerprints.checked = cfg.usePlaywrightWithFingerprints !== false;
   measureTrafficUsage.checked = Boolean(cfg.measureTrafficUsage);
   keepBrowserOpenOnFinish.checked = Boolean(cfg.keepBrowserOpenOnFinish);
   rotateFingerprintWithProfile.checked = Boolean(cfg.rotateFingerprintWithProfile);
+  safeModeEnabled.checked = Boolean(cfg.safeModeEnabled);
 }
 
 async function loadMetrics() {
@@ -234,12 +238,14 @@ async function saveConfig() {
       rotateProfileEveryNRequests: Math.max(0, Number(rotateProfileEveryNRequests.value) || 0),
       maxConcurrentRunSlots: Math.max(1, Number(maxConcurrentRunSlots.value) || 4),
       maxQueuedRunSlots: Math.max(1, Number(maxQueuedRunSlots.value) || 200),
+      safeModeMinFreeRamGb: Math.max(1, Number(safeModeMinFreeRamGb.value) || 4),
       headless: headless.checked,
       advancedFingerprintMode: advancedFingerprintMode.checked,
       usePlaywrightWithFingerprints: usePlaywrightWithFingerprints.checked,
       measureTrafficUsage: measureTrafficUsage.checked,
       keepBrowserOpenOnFinish: keepBrowserOpenOnFinish.checked,
-      rotateFingerprintWithProfile: rotateFingerprintWithProfile.checked
+      rotateFingerprintWithProfile: rotateFingerprintWithProfile.checked,
+      safeModeEnabled: safeModeEnabled.checked
     })
   });
 }

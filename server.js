@@ -40,6 +40,8 @@ const DEFAULT_CONFIG = {
   keepBrowserOpenOnFinish: false,
   rotateProfileEveryNRequests: 0,
   rotateFingerprintWithProfile: false,
+  safeModeEnabled: false,
+  safeModeMinFreeRamGb: 4,
   maxConcurrentRunSlots: Math.max(1, Number(process.env.MAX_CONCURRENT_RUN_SLOTS) || 4),
   maxQueuedRunSlots: Math.max(1, Number(process.env.MAX_QUEUED_RUN_SLOTS) || 200)
 };
@@ -87,6 +89,8 @@ function readConfig() {
       browserEngine: normalizeBrowserEngine(parsed?.browserEngine || DEFAULT_CONFIG.browserEngine),
       rotateProfileEveryNRequests: normalizeRotateEvery(parsed?.rotateProfileEveryNRequests),
       rotateFingerprintWithProfile: Boolean(parsed?.rotateFingerprintWithProfile),
+      safeModeEnabled: Boolean(parsed?.safeModeEnabled),
+      safeModeMinFreeRamGb: normalizePositiveInt(parsed?.safeModeMinFreeRamGb, DEFAULT_CONFIG.safeModeMinFreeRamGb, 1, 64),
       maxConcurrentRunSlots: normalizePositiveInt(
         parsed?.maxConcurrentRunSlots,
         DEFAULT_CONFIG.maxConcurrentRunSlots,
@@ -345,6 +349,33 @@ async function acquireRunSlot() {
   });
 }
 
+async function waitForSafeModeRam(runConfig, logFn = () => {}) {
+  if (!Boolean(runConfig?.safeModeEnabled)) return;
+  const minFreeGb = Math.max(1, Number(runConfig?.safeModeMinFreeRamGb) || DEFAULT_CONFIG.safeModeMinFreeRamGb);
+  const maxWaitMs = 30000;
+  const sleepMs = 2000;
+  const started = Date.now();
+
+  while (true) {
+    const freeGb = Number(os.freemem() || 0) / 1024 / 1024 / 1024;
+    if (freeGb >= minFreeGb) return;
+
+    const waited = Date.now() - started;
+    if (waited >= maxWaitMs) {
+      const err = new Error(
+        `Safe mode RAM guard: free RAM ${freeGb.toFixed(2)} GB is below minimum ${minFreeGb.toFixed(2)} GB`
+      );
+      err.code = "LOW_RAM";
+      throw err;
+    }
+
+    logFn(
+      `[safe-mode] low RAM ${freeGb.toFixed(2)} GB < ${minFreeGb.toFixed(2)} GB, waiting ${sleepMs}ms before retry`
+    );
+    await new Promise((resolve) => setTimeout(resolve, sleepMs));
+  }
+}
+
 const execFileAsync = util.promisify(execFile);
 const METRICS_TTL_MS = 2000;
 let metricsCache = { ts: 0, data: null, pending: null };
@@ -583,6 +614,7 @@ function buildLaunchSessionOptions(runConfig, ephemeral) {
     timezoneId: runConfig.timezoneId,
     advancedFingerprintMode: runConfig.advancedFingerprintMode,
     usePlaywrightWithFingerprints: runConfig.usePlaywrightWithFingerprints,
+    safeModeEnabled: Boolean(runConfig.safeModeEnabled),
     ephemeral: Boolean(ephemeral)
   };
 }
@@ -758,6 +790,7 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
   };
 
   try {
+    await waitForSafeModeRam(runConfig, (...args) => pushLog(...args));
     slot = await acquireRunSlot();
     if (slot.waitedMs > 0) {
       pushLog(`[queue] waited ${slot.waitedMs}ms for available run slot`);
@@ -879,6 +912,7 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
     let trafficMeter = null;
 
     try {
+      await waitForSafeModeRam(runConfig, (...args) => addRunLog(run, ...args));
       slot = await acquireRunSlot();
       run.status = "running";
       addRunLog(run, `[run] starting script ${scriptName}`);
@@ -1065,6 +1099,13 @@ app.post("/api/config", (req, res) => {
     keepBrowserOpenOnFinish: Boolean(body.keepBrowserOpenOnFinish),
     rotateProfileEveryNRequests: normalizeRotateEvery(body.rotateProfileEveryNRequests),
     rotateFingerprintWithProfile: Boolean(body.rotateFingerprintWithProfile),
+    safeModeEnabled: Boolean(body.safeModeEnabled),
+    safeModeMinFreeRamGb: normalizePositiveInt(
+      body.safeModeMinFreeRamGb,
+      DEFAULT_CONFIG.safeModeMinFreeRamGb,
+      1,
+      64
+    ),
     maxConcurrentRunSlots: normalizePositiveInt(
       body.maxConcurrentRunSlots,
       DEFAULT_CONFIG.maxConcurrentRunSlots,
@@ -1197,6 +1238,13 @@ async function handleRunSync(req, res) {
       return res.status(503).set("Retry-After", "3").json({
         ok: false,
         error: err?.message || "Server is busy",
+        ...getRunSlotStats()
+      });
+    }
+    if (err?.code === "LOW_RAM") {
+      return res.status(503).set("Retry-After", "5").json({
+        ok: false,
+        error: err?.message || "Safe mode RAM guard blocked run",
         ...getRunSlotStats()
       });
     }

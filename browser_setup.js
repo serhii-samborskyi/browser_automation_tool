@@ -48,6 +48,9 @@ chromiumExtra.use(stealth);
 let chromiumEngine = null;
 let fpWarned = false;
 let camoufoxApi = null;
+let safeCamoufoxSharedBrowser = null;
+let safeCamoufoxSharedKey = "";
+let safeCamoufoxLaunchInFlight = null;
 
 async function getChromiumEngine(usePlaywrightWithFingerprints = true) {
   if (!usePlaywrightWithFingerprints) {
@@ -87,6 +90,87 @@ async function getCamoufoxApi() {
       `Camoufox engine selected but camoufox-js is not ready (${err?.message || err}). Install with "npm i camoufox-js" and run "npx camoufox-js fetch".`
     );
   }
+}
+
+function buildSafeCamoufoxSharedKey(base = {}, proxyOpts = null) {
+  const win = Array.isArray(base.window) ? base.window : [];
+  return JSON.stringify({
+    headless: Boolean(base.headless),
+    locale: String(base.locale || "en-US"),
+    window: [Number(win[0]) || 1440, Number(win[1]) || 900],
+    proxyServer: String(proxyOpts?.server || ""),
+    proxyUser: String(proxyOpts?.username || ""),
+    proxyPass: String(proxyOpts?.password || "")
+  });
+}
+
+async function closeSafeCamoufoxSharedBrowser() {
+  if (!safeCamoufoxSharedBrowser) return;
+  try {
+    await safeCamoufoxSharedBrowser.close();
+  } catch {
+    // ignore close errors
+  } finally {
+    safeCamoufoxSharedBrowser = null;
+    safeCamoufoxSharedKey = "";
+  }
+}
+
+async function getOrCreateSafeCamoufoxSharedBrowser({ Camoufox, launchOptions, camoufoxBase, proxyOpts }) {
+  const targetKey = buildSafeCamoufoxSharedKey(camoufoxBase, proxyOpts);
+
+  if (
+    safeCamoufoxSharedBrowser &&
+    safeCamoufoxSharedBrowser.isConnected?.() &&
+    safeCamoufoxSharedKey === targetKey
+  ) {
+    return safeCamoufoxSharedBrowser;
+  }
+
+  if (safeCamoufoxLaunchInFlight) {
+    await safeCamoufoxLaunchInFlight;
+    if (
+      safeCamoufoxSharedBrowser &&
+      safeCamoufoxSharedBrowser.isConnected?.() &&
+      safeCamoufoxSharedKey === targetKey
+    ) {
+      return safeCamoufoxSharedBrowser;
+    }
+  }
+
+  safeCamoufoxLaunchInFlight = (async () => {
+    if (safeCamoufoxSharedBrowser && safeCamoufoxSharedKey !== targetKey) {
+      await closeSafeCamoufoxSharedBrowser();
+    }
+
+    if (!safeCamoufoxSharedBrowser) {
+      if (launchOptions) {
+        const generated = await launchOptions(camoufoxBase);
+        safeCamoufoxSharedBrowser = await firefoxCore.launch({
+          ...generated,
+          headless: camoufoxBase.headless,
+          proxy: proxyOpts || undefined
+        });
+      } else if (Camoufox) {
+        const launched = await Camoufox(camoufoxBase);
+        if (!launched?.newContext) {
+          throw new Error("Safe mode requires Camoufox browser object with newContext()");
+        }
+        safeCamoufoxSharedBrowser = launched;
+      } else {
+        throw new Error("Safe mode Camoufox launch unavailable");
+      }
+      safeCamoufoxSharedKey = targetKey;
+    }
+  })();
+
+  try {
+    await safeCamoufoxLaunchInFlight;
+  } finally {
+    safeCamoufoxLaunchInFlight = null;
+  }
+
+  return safeCamoufoxSharedBrowser;
 }
 
 function normalizeProxyRaw(raw) {
@@ -279,7 +363,8 @@ export async function launchBrowserSession(options = {}) {
     timezoneId = "America/Chicago",
     advancedFingerprintMode = true,
     usePlaywrightWithFingerprints = true,
-    ephemeral = false
+    ephemeral = false,
+    safeModeEnabled = false
   } = options;
 
   const proxyOpts = parseProxy(proxy);
@@ -299,9 +384,11 @@ export async function launchBrowserSession(options = {}) {
 
   let context;
   let launchedBrowser = null;
+  let sharedCamoufoxContext = false;
+  const useSafeCamoufoxReuse = useCamoufox && Boolean(safeModeEnabled);
 
   const profileDir = path.join(PROFILE_ROOT, String(profileName || "default"));
-  if (!ephemeral) {
+  if (!ephemeral && !useSafeCamoufoxReuse) {
     fs.mkdirSync(profileDir, { recursive: true });
 
     const lockPath = path.join(profileDir, "SingletonLock");
@@ -339,7 +426,16 @@ export async function launchBrowserSession(options = {}) {
       window: [Number(viewportWidth) || 1440, Number(viewportHeight) || 900]
     };
 
-    if (Camoufox) {
+    if (useSafeCamoufoxReuse) {
+      const sharedBrowser = await getOrCreateSafeCamoufoxSharedBrowser({
+        Camoufox,
+        launchOptions,
+        camoufoxBase,
+        proxyOpts
+      });
+      context = await sharedBrowser.newContext(contextDefaults);
+      sharedCamoufoxContext = true;
+    } else if (Camoufox) {
       const launched = await Camoufox(
         ephemeral
           ? camoufoxBase
@@ -431,6 +527,14 @@ export async function launchBrowserSession(options = {}) {
   }
 
   const close = async () => {
+    if (sharedCamoufoxContext) {
+      try {
+        await context.close();
+      } catch {
+        // ignore
+      }
+      return;
+    }
     try {
       await context.close();
     } catch {
