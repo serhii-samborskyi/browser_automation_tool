@@ -22,6 +22,8 @@ const localeInput = document.getElementById("locale");
 const timezoneInput = document.getElementById("timezoneId");
 const timeoutMs = document.getElementById("timeoutMs");
 const rotateProfileEveryNRequests = document.getElementById("rotateProfileEveryNRequests");
+const maxConcurrentRunSlots = document.getElementById("maxConcurrentRunSlots");
+const maxQueuedRunSlots = document.getElementById("maxQueuedRunSlots");
 const headless = document.getElementById("headless");
 const advancedFingerprintMode = document.getElementById("advancedFingerprintMode");
 const usePlaywrightWithFingerprints = document.getElementById("usePlaywrightWithFingerprints");
@@ -114,6 +116,8 @@ async function loadConfig() {
   timezoneInput.value = cfg.timezoneId || "America/Chicago";
   timeoutMs.value = Number(cfg.timeoutMs) || 120000;
   rotateProfileEveryNRequests.value = Math.max(0, Number(cfg.rotateProfileEveryNRequests) || 0);
+  maxConcurrentRunSlots.value = Math.max(1, Number(cfg.maxConcurrentRunSlots) || 4);
+  maxQueuedRunSlots.value = Math.max(1, Number(cfg.maxQueuedRunSlots) || 200);
   headless.checked = Boolean(cfg.headless);
   advancedFingerprintMode.checked = cfg.advancedFingerprintMode !== false;
   usePlaywrightWithFingerprints.checked = cfg.usePlaywrightWithFingerprints !== false;
@@ -157,6 +161,8 @@ async function saveConfig() {
       timezoneId: timezoneInput.value.trim() || "America/Chicago",
       timeoutMs: Number(timeoutMs.value) || 120000,
       rotateProfileEveryNRequests: Math.max(0, Number(rotateProfileEveryNRequests.value) || 0),
+      maxConcurrentRunSlots: Math.max(1, Number(maxConcurrentRunSlots.value) || 4),
+      maxQueuedRunSlots: Math.max(1, Number(maxQueuedRunSlots.value) || 200),
       headless: headless.checked,
       advancedFingerprintMode: advancedFingerprintMode.checked,
       usePlaywrightWithFingerprints: usePlaywrightWithFingerprints.checked,

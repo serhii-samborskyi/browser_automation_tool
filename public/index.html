@@ -98,6 +98,12 @@
       <label>Rotate Profile Every (requests)</label>
       <input id="rotateProfileEveryNRequests" type="number" min="0" step="1" placeholder="0 = disabled" />
 
+      <label>Max Concurrent Runs</label>
+      <input id="maxConcurrentRunSlots" type="number" min="1" step="1" />
+
+      <label>Max Queued Runs</label>
+      <input id="maxQueuedRunSlots" type="number" min="1" step="1" />
+
       <label class="checkbox">
         <input id="headless" type="checkbox" />
         <span>Headless mode</span>
@@ -200,6 +206,8 @@ curl "http://localhost:4300/api/runs/&lt;runId&gt;"</pre>
     "proxy": "user:pass@host:port",
     "headless": false,
     "timeoutMs": 120000,
+    "maxConcurrentRunSlots": 4,
+    "maxQueuedRunSlots": 200,
     "rotateProfileEveryNRequests": 5,
     "rotateFingerprintWithProfile": true
   }'</pre>

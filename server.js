@@ -37,7 +37,9 @@ const DEFAULT_CONFIG = {
   timeoutMs: 120000,
   keepBrowserOpenOnFinish: false,
   rotateProfileEveryNRequests: 0,
-  rotateFingerprintWithProfile: false
+  rotateFingerprintWithProfile: false,
+  maxConcurrentRunSlots: Math.max(1, Number(process.env.MAX_CONCURRENT_RUN_SLOTS) || 4),
+  maxQueuedRunSlots: Math.max(1, Number(process.env.MAX_QUEUED_RUN_SLOTS) || 200)
 };
 
 const DEFAULT_ROTATION_STATE = {
@@ -73,24 +75,43 @@ function readConfig() {
   try {
     if (!fs.existsSync(CONFIG_PATH)) {
       fs.writeFileSync(CONFIG_PATH, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`, "utf8");
+      syncRunSlotLimitsFromConfig(DEFAULT_CONFIG);
       return { ...DEFAULT_CONFIG };
     }
     const parsed = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-    return {
+    const next = {
       ...DEFAULT_CONFIG,
       ...parsed,
       browserEngine: normalizeBrowserEngine(parsed?.browserEngine || DEFAULT_CONFIG.browserEngine),
       rotateProfileEveryNRequests: normalizeRotateEvery(parsed?.rotateProfileEveryNRequests),
-      rotateFingerprintWithProfile: Boolean(parsed?.rotateFingerprintWithProfile)
+      rotateFingerprintWithProfile: Boolean(parsed?.rotateFingerprintWithProfile),
+      maxConcurrentRunSlots: normalizePositiveInt(
+        parsed?.maxConcurrentRunSlots,
+        DEFAULT_CONFIG.maxConcurrentRunSlots,
+        1,
+        128
+      ),
+      maxQueuedRunSlots: normalizePositiveInt(parsed?.maxQueuedRunSlots, DEFAULT_CONFIG.maxQueuedRunSlots, 1, 5000)
     };
+    syncRunSlotLimitsFromConfig(next);
+    return next;
   } catch {
+    syncRunSlotLimitsFromConfig(DEFAULT_CONFIG);
     return { ...DEFAULT_CONFIG };
   }
 }
 
 function writeConfig(patch) {
   const next = { ...readConfig(), ...patch };
+  next.maxConcurrentRunSlots = normalizePositiveInt(
+    next.maxConcurrentRunSlots,
+    DEFAULT_CONFIG.maxConcurrentRunSlots,
+    1,
+    128
+  );
+  next.maxQueuedRunSlots = normalizePositiveInt(next.maxQueuedRunSlots, DEFAULT_CONFIG.maxQueuedRunSlots, 1, 5000);
   fs.writeFileSync(CONFIG_PATH, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  syncRunSlotLimitsFromConfig(next);
   return next;
 }
 
@@ -109,6 +130,15 @@ function normalizeRotateEvery(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.floor(n);
+}
+
+function normalizePositiveInt(value, fallback, min = 1, max = 10000) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.floor(n);
+  if (i < min) return min;
+  if (i > max) return max;
+  return i;
 }
 
 function readRotationState() {
@@ -233,15 +263,25 @@ const runOrder = [];
 const MAX_STORED_RUNS = 60;
 const MAX_RUN_LOG_LINES = 800;
 const MAX_SYNC_LOG_LINES = 300;
-const MAX_CONCURRENT_RUN_SLOTS = Math.max(1, Number(process.env.MAX_CONCURRENT_RUN_SLOTS) || 4);
-const MAX_QUEUED_RUN_SLOTS = Math.max(1, Number(process.env.MAX_QUEUED_RUN_SLOTS) || 200);
+let maxConcurrentRunSlots = DEFAULT_CONFIG.maxConcurrentRunSlots;
+let maxQueuedRunSlots = DEFAULT_CONFIG.maxQueuedRunSlots;
 let activeRunSlots = 0;
 const runSlotQueue = [];
 
+function syncRunSlotLimitsFromConfig(cfg) {
+  maxConcurrentRunSlots = normalizePositiveInt(
+    cfg?.maxConcurrentRunSlots,
+    DEFAULT_CONFIG.maxConcurrentRunSlots,
+    1,
+    128
+  );
+  maxQueuedRunSlots = normalizePositiveInt(cfg?.maxQueuedRunSlots, DEFAULT_CONFIG.maxQueuedRunSlots, 1, 5000);
+}
+
 function getRunSlotStats() {
   return {
-    maxConcurrentRunSlots: MAX_CONCURRENT_RUN_SLOTS,
-    maxQueuedRunSlots: MAX_QUEUED_RUN_SLOTS,
+    maxConcurrentRunSlots,
+    maxQueuedRunSlots,
     activeRunSlots,
     queuedRunSlots: runSlotQueue.length
   };
@@ -249,14 +289,14 @@ function getRunSlotStats() {
 
 function createQueueFullError() {
   const err = new Error(
-    `Server is busy: run queue is full (${MAX_QUEUED_RUN_SLOTS}). Reduce concurrency or retry shortly.`
+    `Server is busy: run queue is full (${maxQueuedRunSlots}). Reduce concurrency or retry shortly.`
   );
   err.code = "QUEUE_FULL";
   return err;
 }
 
 function dispatchRunSlotQueue() {
-  while (activeRunSlots < MAX_CONCURRENT_RUN_SLOTS && runSlotQueue.length) {
+  while (activeRunSlots < maxConcurrentRunSlots && runSlotQueue.length) {
     const waiter = runSlotQueue.shift();
     if (!waiter) continue;
 
@@ -276,7 +316,7 @@ function dispatchRunSlotQueue() {
 }
 
 async function acquireRunSlot() {
-  if (activeRunSlots < MAX_CONCURRENT_RUN_SLOTS) {
+  if (activeRunSlots < maxConcurrentRunSlots) {
     activeRunSlots += 1;
     let released = false;
     return {
@@ -290,7 +330,7 @@ async function acquireRunSlot() {
     };
   }
 
-  if (runSlotQueue.length >= MAX_QUEUED_RUN_SLOTS) {
+  if (runSlotQueue.length >= maxQueuedRunSlots) {
     throw createQueueFullError();
   }
 
@@ -782,6 +822,7 @@ function listScriptFiles() {
 
 const app = express();
 const port = process.env.PORT || readPortFromIni() || 4000;
+syncRunSlotLimitsFromConfig(readConfig());
 
 app.use(bodyParser.json({ limit: "4mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -821,7 +862,14 @@ app.post("/api/config", (req, res) => {
     timeoutMs: Number(body.timeoutMs) || DEFAULT_CONFIG.timeoutMs,
     keepBrowserOpenOnFinish: Boolean(body.keepBrowserOpenOnFinish),
     rotateProfileEveryNRequests: normalizeRotateEvery(body.rotateProfileEveryNRequests),
-    rotateFingerprintWithProfile: Boolean(body.rotateFingerprintWithProfile)
+    rotateFingerprintWithProfile: Boolean(body.rotateFingerprintWithProfile),
+    maxConcurrentRunSlots: normalizePositiveInt(
+      body.maxConcurrentRunSlots,
+      DEFAULT_CONFIG.maxConcurrentRunSlots,
+      1,
+      128
+    ),
+    maxQueuedRunSlots: normalizePositiveInt(body.maxQueuedRunSlots, DEFAULT_CONFIG.maxQueuedRunSlots, 1, 5000)
   });
   res.json(next);
 });
