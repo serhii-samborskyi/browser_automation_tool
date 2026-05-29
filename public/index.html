@@ -135,6 +135,12 @@
       <label>Safe Mode Min Free RAM (GB)</label>
       <input id="safeModeMinFreeRamGb" type="number" min="1" step="1" />
 
+      <label>Browser Job Timeout (ms)</label>
+      <input id="browserJobTimeoutMs" type="number" min="10000" step="1000" />
+
+      <label>Camoufox Shared Idle Close (ms)</label>
+      <input id="camoufoxSharedIdleMs" type="number" min="5000" step="1000" />
+
       <label class="checkbox">
         <input id="headless" type="checkbox" />
         <span>Headless mode</span>
@@ -243,6 +249,8 @@ curl "http://localhost:4300/api/runs/&lt;runId&gt;"</pre>
     "timeoutMs": 120000,
     "safeModeEnabled": true,
     "safeModeMinFreeRamGb": 4,
+    "browserJobTimeoutMs": 180000,
+    "camoufoxSharedIdleMs": 30000,
     "maxConcurrentRunSlots": 4,
     "maxQueuedRunSlots": 200,
     "rotateProfileEveryNRequests": 5,

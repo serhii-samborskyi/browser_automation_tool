@@ -35,6 +35,8 @@ const rotateProfileEveryNRequests = document.getElementById("rotateProfileEveryN
 const maxConcurrentRunSlots = document.getElementById("maxConcurrentRunSlots");
 const maxQueuedRunSlots = document.getElementById("maxQueuedRunSlots");
 const safeModeMinFreeRamGb = document.getElementById("safeModeMinFreeRamGb");
+const browserJobTimeoutMs = document.getElementById("browserJobTimeoutMs");
+const camoufoxSharedIdleMs = document.getElementById("camoufoxSharedIdleMs");
 const headless = document.getElementById("headless");
 const advancedFingerprintMode = document.getElementById("advancedFingerprintMode");
 const usePlaywrightWithFingerprints = document.getElementById("usePlaywrightWithFingerprints");
@@ -151,6 +153,8 @@ async function loadConfig() {
   maxConcurrentRunSlots.value = Math.max(1, Number(cfg.maxConcurrentRunSlots) || 4);
   maxQueuedRunSlots.value = Math.max(1, Number(cfg.maxQueuedRunSlots) || 200);
   safeModeMinFreeRamGb.value = Math.max(1, Number(cfg.safeModeMinFreeRamGb) || 4);
+  browserJobTimeoutMs.value = Math.max(10000, Number(cfg.browserJobTimeoutMs) || 180000);
+  camoufoxSharedIdleMs.value = Math.max(5000, Number(cfg.camoufoxSharedIdleMs) || 30000);
   headless.checked = Boolean(cfg.headless);
   advancedFingerprintMode.checked = cfg.advancedFingerprintMode !== false;
   usePlaywrightWithFingerprints.checked = cfg.usePlaywrightWithFingerprints !== false;
@@ -239,6 +243,8 @@ async function saveConfig() {
       maxConcurrentRunSlots: Math.max(1, Number(maxConcurrentRunSlots.value) || 4),
       maxQueuedRunSlots: Math.max(1, Number(maxQueuedRunSlots.value) || 200),
       safeModeMinFreeRamGb: Math.max(1, Number(safeModeMinFreeRamGb.value) || 4),
+      browserJobTimeoutMs: Math.max(10000, Number(browserJobTimeoutMs.value) || 180000),
+      camoufoxSharedIdleMs: Math.max(5000, Number(camoufoxSharedIdleMs.value) || 30000),
       headless: headless.checked,
       advancedFingerprintMode: advancedFingerprintMode.checked,
       usePlaywrightWithFingerprints: usePlaywrightWithFingerprints.checked,

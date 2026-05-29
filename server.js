@@ -42,7 +42,12 @@ const DEFAULT_CONFIG = {
   rotateFingerprintWithProfile: false,
   safeModeEnabled: false,
   safeModeMinFreeRamGb: 4,
-  maxConcurrentRunSlots: Math.max(1, Number(process.env.MAX_CONCURRENT_RUN_SLOTS) || 4),
+  browserJobTimeoutMs: Math.max(10000, Number(process.env.BROWSER_JOB_TIMEOUT_MS) || 180000),
+  camoufoxSharedIdleMs: Math.max(5000, Number(process.env.CAMOUFOX_SHARED_IDLE_MS) || 30000),
+  maxConcurrentRunSlots: Math.max(
+    1,
+    Number(process.env.MAX_BROWSER_JOBS || process.env.MAX_CONCURRENT_RUN_SLOTS) || 20
+  ),
   maxQueuedRunSlots: Math.max(1, Number(process.env.MAX_QUEUED_RUN_SLOTS) || 200)
 };
 
@@ -91,6 +96,18 @@ function readConfig() {
       rotateFingerprintWithProfile: Boolean(parsed?.rotateFingerprintWithProfile),
       safeModeEnabled: Boolean(parsed?.safeModeEnabled),
       safeModeMinFreeRamGb: normalizePositiveInt(parsed?.safeModeMinFreeRamGb, DEFAULT_CONFIG.safeModeMinFreeRamGb, 1, 64),
+      browserJobTimeoutMs: normalizePositiveInt(
+        parsed?.browserJobTimeoutMs,
+        DEFAULT_CONFIG.browserJobTimeoutMs,
+        10000,
+        3600000
+      ),
+      camoufoxSharedIdleMs: normalizePositiveInt(
+        parsed?.camoufoxSharedIdleMs,
+        DEFAULT_CONFIG.camoufoxSharedIdleMs,
+        5000,
+        3600000
+      ),
       maxConcurrentRunSlots: normalizePositiveInt(
         parsed?.maxConcurrentRunSlots,
         DEFAULT_CONFIG.maxConcurrentRunSlots,
@@ -116,6 +133,18 @@ function writeConfig(patch) {
     128
   );
   next.maxQueuedRunSlots = normalizePositiveInt(next.maxQueuedRunSlots, DEFAULT_CONFIG.maxQueuedRunSlots, 1, 5000);
+  next.browserJobTimeoutMs = normalizePositiveInt(
+    next.browserJobTimeoutMs,
+    DEFAULT_CONFIG.browserJobTimeoutMs,
+    10000,
+    3600000
+  );
+  next.camoufoxSharedIdleMs = normalizePositiveInt(
+    next.camoufoxSharedIdleMs,
+    DEFAULT_CONFIG.camoufoxSharedIdleMs,
+    5000,
+    3600000
+  );
   fs.writeFileSync(CONFIG_PATH, `${JSON.stringify(next, null, 2)}\n`, "utf8");
   syncRunSlotLimitsFromConfig(next);
   return next;
@@ -256,14 +285,6 @@ function ensureSampleScript() {
 
 ensureSampleScript();
 
-process.on("unhandledRejection", (reason) => {
-  console.error("[unhandledRejection]", reason);
-});
-
-process.on("uncaughtException", (err) => {
-  console.error("[uncaughtException]", err);
-});
-
 const runs = new Map();
 const runOrder = [];
 const MAX_STORED_RUNS = 60;
@@ -273,6 +294,7 @@ let maxConcurrentRunSlots = DEFAULT_CONFIG.maxConcurrentRunSlots;
 let maxQueuedRunSlots = DEFAULT_CONFIG.maxQueuedRunSlots;
 let activeRunSlots = 0;
 const runSlotQueue = [];
+const activeBrowserJobs = new Map();
 
 function syncRunSlotLimitsFromConfig(cfg) {
   maxConcurrentRunSlots = normalizePositiveInt(
@@ -348,6 +370,87 @@ async function acquireRunSlot() {
     });
   });
 }
+
+function registerActiveBrowserJob(jobId, session, logFn = () => {}) {
+  if (!jobId || !session) return;
+  activeBrowserJobs.set(jobId, {
+    session,
+    startedAt: Date.now()
+  });
+  logFn(`[browser-job] started ${jobId}`);
+}
+
+async function closeBrowserResources(session) {
+  if (!session) return;
+  try {
+    await session.page?.close?.().catch(() => {});
+  } catch {
+    // ignore
+  }
+  try {
+    await session.context?.close?.().catch(() => {});
+  } catch {
+    // ignore
+  }
+  if (!session.isSharedCamoufoxContext) {
+    try {
+      await session.browser?.close?.().catch(() => {});
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    await session.close?.().catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
+async function unregisterActiveBrowserJob(jobId, logFn = () => {}) {
+  if (!jobId) return;
+  const entry = activeBrowserJobs.get(jobId);
+  if (!entry) return;
+  activeBrowserJobs.delete(jobId);
+  logFn(`[browser-job] closed ${jobId}`);
+}
+
+async function cleanupAllActiveBrowserJobs(reason = "shutdown") {
+  const entries = [...activeBrowserJobs.entries()];
+  for (const [jobId, entry] of entries) {
+    try {
+      await closeBrowserResources(entry?.session);
+      activeBrowserJobs.delete(jobId);
+      console.log(`[browser-job] force-cleaned ${jobId} (${reason})`);
+    } catch (err) {
+      console.error(`[browser-job] force-clean failed ${jobId} (${reason})`, err?.message || err);
+    }
+  }
+}
+
+let shutdownInProgress = false;
+async function handleProcessShutdown(reason, err = null) {
+  if (shutdownInProgress) return;
+  shutdownInProgress = true;
+  if (err) {
+    console.error(`[${reason}]`, err);
+  } else {
+    console.log(`[${reason}] cleaning up active browser jobs`);
+  }
+  await cleanupAllActiveBrowserJobs(reason);
+}
+
+process.on("SIGINT", () => {
+  void handleProcessShutdown("SIGINT").finally(() => process.exit(130));
+});
+process.on("SIGTERM", () => {
+  void handleProcessShutdown("SIGTERM").finally(() => process.exit(143));
+});
+process.on("uncaughtException", (err) => {
+  void handleProcessShutdown("uncaughtException", err).finally(() => process.exit(1));
+});
+process.on("unhandledRejection", (reason) => {
+  void handleProcessShutdown("unhandledRejection", reason).finally(() => process.exit(1));
+});
 
 async function waitForSafeModeRam(runConfig, logFn = () => {}) {
   if (!Boolean(runConfig?.safeModeEnabled)) return;
@@ -615,6 +718,7 @@ function buildLaunchSessionOptions(runConfig, ephemeral) {
     advancedFingerprintMode: runConfig.advancedFingerprintMode,
     usePlaywrightWithFingerprints: runConfig.usePlaywrightWithFingerprints,
     safeModeEnabled: Boolean(runConfig.safeModeEnabled),
+    safeModeSharedBrowserIdleMs: Number(runConfig.camoufoxSharedIdleMs) || DEFAULT_CONFIG.camoufoxSharedIdleMs,
     ephemeral: Boolean(ephemeral)
   };
 }
@@ -761,53 +865,53 @@ async function createTrafficMeter(page, enabled, logFn = () => {}) {
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
-async function executeScriptSync({ scriptName, code, config, ephemeral, input = {} }) {
-  const started = Date.now();
-  const logs = [];
+async function runBrowserJob({
+  jobId,
+  scriptName,
+  code,
+  config,
+  ephemeral,
+  input = {},
+  logFn = () => {},
+  stopRequested = () => false
+}) {
   let session = null;
-  let timeout = null;
   let slot = null;
+  let trafficMeter = null;
   let explicitResult;
   let runConfig = { ...config };
-  let trafficMeter = null;
   let effectiveEphemeral = Boolean(ephemeral);
   let fallbackEphemeral = false;
   let fallbackReason = null;
-
-  const pushLog = (...args) => {
-    const line = args
-      .map((v) => (typeof v === "string" ? v : util.inspect(v, { depth: 4, breakLength: 120 })))
-      .join(" ");
-    logs.push({
-      ts: new Date().toISOString(),
-      line
-    });
-    if (logs.length > MAX_SYNC_LOG_LINES) logs.splice(0, logs.length - MAX_SYNC_LOG_LINES);
-  };
+  let softTimeoutId = null;
+  let hardTimeoutId = null;
+  const browserJobTimeoutMs = Math.max(10000, Number(runConfig.browserJobTimeoutMs) || DEFAULT_CONFIG.browserJobTimeoutMs);
 
   const setResult = (value) => {
     explicitResult = value;
   };
 
   try {
-    await waitForSafeModeRam(runConfig, (...args) => pushLog(...args));
+    await waitForSafeModeRam(runConfig, (...args) => logFn(...args));
     slot = await acquireRunSlot();
     if (slot.waitedMs > 0) {
-      pushLog(`[queue] waited ${slot.waitedMs}ms for available run slot`);
+      logFn(`[queue] waited ${slot.waitedMs}ms for available run slot`);
     }
 
-    const rotation = await maybeRotateProfileAndFingerprint(runConfig, (...args) => pushLog(...args));
+    const rotation = await maybeRotateProfileAndFingerprint(runConfig, (...args) => logFn(...args));
     runConfig = rotation?.config || runConfig;
 
-    const launched = await launchSessionWithFallback(runConfig, ephemeral, (...args) => pushLog(...args));
+    const launched = await launchSessionWithFallback(runConfig, ephemeral, (...args) => logFn(...args));
     session = launched.session;
     effectiveEphemeral = launched.effectiveEphemeral;
     fallbackEphemeral = launched.fallbackEphemeral;
     fallbackReason = launched.fallbackReason;
-    trafficMeter = await createTrafficMeter(session.page, Boolean(runConfig.measureTrafficUsage), (...args) => pushLog(...args));
+
+    registerActiveBrowserJob(jobId, session, (...args) => logFn(...args));
+
+    trafficMeter = await createTrafficMeter(session.page, Boolean(runConfig.measureTrafficUsage), (...args) => logFn(...args));
 
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
-    const stopRequested = () => false;
     const fn = new AsyncFunction(
       "page",
       "context",
@@ -822,11 +926,17 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
       code
     );
 
-    const timeoutMs = Number(runConfig.timeoutMs) || DEFAULT_CONFIG.timeoutMs;
-    const timeoutPromise = new Promise((_, reject) => {
-      timeout = setTimeout(() => {
-        reject(new Error(`Script timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+    const softTimeoutMs = Number(runConfig.timeoutMs) || DEFAULT_CONFIG.timeoutMs;
+    const softTimeoutPromise = new Promise((_, reject) => {
+      softTimeoutId = setTimeout(() => {
+        reject(new Error(`Script timed out after ${softTimeoutMs}ms`));
+      }, softTimeoutMs);
+    });
+
+    const hardTimeoutPromise = new Promise((_, reject) => {
+      hardTimeoutId = setTimeout(() => {
+        reject(new Error(`Browser job hard timeout after ${browserJobTimeoutMs}ms`));
+      }, browserJobTimeoutMs);
     });
 
     const returned = await Promise.race([
@@ -835,48 +945,89 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
         session.context,
         session.browser,
         playwright,
-        (...args) => pushLog(...args),
+        (...args) => logFn(...args),
         sleep,
         { ...runConfig, ephemeral: Boolean(effectiveEphemeral) },
         stopRequested,
         input,
         setResult
       ),
-      timeoutPromise
+      softTimeoutPromise,
+      hardTimeoutPromise
     ]);
 
     const traffic = trafficMeter.getStats();
-    const out = {
-      ok: true,
-      scriptName,
-      durationMs: Date.now() - started,
-      result: explicitResult !== undefined ? explicitResult : returned ?? null,
+    return {
+      returned,
+      explicitResult,
       traffic,
-      logs
+      effectiveEphemeral,
+      fallbackEphemeral,
+      fallbackReason,
+      runConfig
     };
-    if (fallbackEphemeral) {
-      out.fallbackEphemeral = true;
-      out.fallbackReason = fallbackReason;
+  } catch (err) {
+    if (String(err?.message || "").includes("hard timeout")) {
+      logFn(`[browser-job] timeout ${jobId}: ${err?.message || err}`);
     }
-    return out;
+    throw err;
   } finally {
-    if (timeout) clearTimeout(timeout);
+    if (softTimeoutId) clearTimeout(softTimeoutId);
+    if (hardTimeoutId) clearTimeout(hardTimeoutId);
     try {
       await trafficMeter?.stop?.();
     } catch {
       // ignore
     }
-    try {
-      await session?.close?.();
-    } catch {
-      // ignore close errors
-    }
+    await closeBrowserResources(session);
+    await unregisterActiveBrowserJob(jobId, (...args) => logFn(...args));
     try {
       slot?.release?.();
     } catch {
       // ignore
     }
   }
+}
+
+async function executeScriptSync({ scriptName, code, config, ephemeral, input = {} }) {
+  const started = Date.now();
+  const logs = [];
+
+  const pushLog = (...args) => {
+    const line = args
+      .map((v) => (typeof v === "string" ? v : util.inspect(v, { depth: 4, breakLength: 120 })))
+      .join(" ");
+    logs.push({
+      ts: new Date().toISOString(),
+      line
+    });
+    if (logs.length > MAX_SYNC_LOG_LINES) logs.splice(0, logs.length - MAX_SYNC_LOG_LINES);
+  };
+
+  const browserJob = await runBrowserJob({
+    jobId: `sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    scriptName,
+    code,
+    config,
+    ephemeral,
+    input,
+    logFn: (...args) => pushLog(...args),
+    stopRequested: () => false
+  });
+
+  const out = {
+    ok: true,
+    scriptName,
+    durationMs: Date.now() - started,
+    result: browserJob.explicitResult !== undefined ? browserJob.explicitResult : browserJob.returned ?? null,
+    traffic: browserJob.traffic,
+    logs
+  };
+  if (browserJob.fallbackEphemeral) {
+    out.fallbackEphemeral = true;
+    out.fallbackReason = browserJob.fallbackReason;
+  }
+  return out;
 }
 
 async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
@@ -905,85 +1056,28 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
   void evictOldRunsIfNeeded(runId);
 
   (async () => {
-    let session = null;
-    let timeout = null;
-    let slot = null;
-    let runConfig = { ...config };
-    let trafficMeter = null;
-
     try {
-      await waitForSafeModeRam(runConfig, (...args) => addRunLog(run, ...args));
-      slot = await acquireRunSlot();
       run.status = "running";
       addRunLog(run, `[run] starting script ${scriptName}`);
-      if (slot.waitedMs > 0) {
-        addRunLog(run, `[queue] waited ${slot.waitedMs}ms for available run slot`);
-      }
-      const rotation = await maybeRotateProfileAndFingerprint(runConfig, (...args) => addRunLog(run, ...args));
-      runConfig = rotation?.config || runConfig;
-
-      const launched = await launchSessionWithFallback(runConfig, ephemeral, (...args) => addRunLog(run, ...args));
-      session = launched.session;
-      run.ephemeral = launched.effectiveEphemeral;
-      run.fallbackEphemeral = launched.fallbackEphemeral;
-      run.fallbackReason = launched.fallbackReason;
-      trafficMeter = await createTrafficMeter(session.page, Boolean(runConfig.measureTrafficUsage), (...args) =>
-        addRunLog(run, ...args)
-      );
-
       run.stop = async () => {
         run.stopRequested = true;
-        try {
-          await session?.close?.();
-        } catch {
-          // ignore
-        }
       };
 
       const stopRequested = () => run.stopRequested;
-      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
-      const log = (...args) => addRunLog(run, ...args);
-      let explicitResult;
-      const setResult = (value) => {
-        explicitResult = value;
-      };
-
-      const fn = new AsyncFunction(
-        "page",
-        "context",
-        "browser",
-        "playwright",
-        "log",
-        "sleep",
-        "config",
-        "stopRequested",
-        "input",
-        "setResult",
-        code
-      );
-
-      const timeoutMs = Number(run.timeoutMs) || DEFAULT_CONFIG.timeoutMs;
-      const timeoutPromise = new Promise((_, reject) => {
-        timeout = setTimeout(() => {
-          reject(new Error(`Script timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
+      const browserJob = await runBrowserJob({
+        jobId: runId,
+        scriptName,
+        code,
+        config,
+        ephemeral,
+        input,
+        logFn: (...args) => addRunLog(run, ...args),
+        stopRequested
       });
 
-      await Promise.race([
-        fn(
-          session.page,
-          session.context,
-          session.browser,
-          playwright,
-          log,
-          sleep,
-          { ...runConfig, ephemeral: Boolean(run.ephemeral) },
-          stopRequested,
-          input,
-          setResult
-        ),
-        timeoutPromise
-      ]);
+      run.ephemeral = browserJob.effectiveEphemeral;
+      run.fallbackEphemeral = browserJob.fallbackEphemeral;
+      run.fallbackReason = browserJob.fallbackReason;
 
       if (run.stopRequested) {
         run.status = "stopped";
@@ -991,11 +1085,11 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
       } else {
         run.status = "done";
         addRunLog(run, "[run] completed");
-        if (explicitResult !== undefined) {
-          addRunLog(run, "[run] result", explicitResult);
+        if (browserJob.explicitResult !== undefined) {
+          addRunLog(run, "[run] result", browserJob.explicitResult);
         }
       }
-      run.traffic = trafficMeter.getStats();
+      run.traffic = browserJob.traffic;
       if (run.traffic) {
         addRunLog(
           run,
@@ -1007,32 +1101,8 @@ async function runScript({ scriptName, code, config, ephemeral, input = {} }) {
       run.error = err?.stack || err?.message || String(err);
       addRunLog(run, `[run] error: ${run.error}`);
     } finally {
-      if (timeout) clearTimeout(timeout);
-      try {
-        await trafficMeter?.stop?.();
-      } catch {
-        // ignore
-      }
-      const shouldKeepOpen =
-        Boolean(run.keepBrowserOpenOnFinish) &&
-        run.status === "done" &&
-        !run.stopRequested;
-      if (!shouldKeepOpen) {
-        try {
-          await session?.close?.();
-        } catch {
-          // ignore
-        }
-      } else {
-        addRunLog(run, "[run] keepBrowserOpenOnFinish=true, browser left open");
-      }
-      try {
-        slot?.release?.();
-      } catch {
-        // ignore
-      }
       run.finishedAt = new Date().toISOString();
-      if (!shouldKeepOpen) run.stop = null;
+      run.stop = null;
     }
   })();
 
@@ -1105,6 +1175,18 @@ app.post("/api/config", (req, res) => {
       DEFAULT_CONFIG.safeModeMinFreeRamGb,
       1,
       64
+    ),
+    browserJobTimeoutMs: normalizePositiveInt(
+      body.browserJobTimeoutMs,
+      DEFAULT_CONFIG.browserJobTimeoutMs,
+      10000,
+      3600000
+    ),
+    camoufoxSharedIdleMs: normalizePositiveInt(
+      body.camoufoxSharedIdleMs,
+      DEFAULT_CONFIG.camoufoxSharedIdleMs,
+      5000,
+      3600000
     ),
     maxConcurrentRunSlots: normalizePositiveInt(
       body.maxConcurrentRunSlots,

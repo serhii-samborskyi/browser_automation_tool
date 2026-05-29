@@ -51,6 +51,9 @@ let camoufoxApi = null;
 let safeCamoufoxSharedBrowser = null;
 let safeCamoufoxSharedKey = "";
 let safeCamoufoxLaunchInFlight = null;
+let safeCamoufoxOpenContexts = 0;
+let safeCamoufoxIdleTimer = null;
+let safeCamoufoxIdleMs = Math.max(5000, Number(process.env.CAMOUFOX_SHARED_IDLE_MS) || 30000);
 
 async function getChromiumEngine(usePlaywrightWithFingerprints = true) {
   if (!usePlaywrightWithFingerprints) {
@@ -105,6 +108,10 @@ function buildSafeCamoufoxSharedKey(base = {}, proxyOpts = null) {
 }
 
 async function closeSafeCamoufoxSharedBrowser() {
+  if (safeCamoufoxIdleTimer) {
+    clearTimeout(safeCamoufoxIdleTimer);
+    safeCamoufoxIdleTimer = null;
+  }
   if (!safeCamoufoxSharedBrowser) return;
   try {
     await safeCamoufoxSharedBrowser.close();
@@ -113,6 +120,7 @@ async function closeSafeCamoufoxSharedBrowser() {
   } finally {
     safeCamoufoxSharedBrowser = null;
     safeCamoufoxSharedKey = "";
+    safeCamoufoxOpenContexts = 0;
   }
 }
 
@@ -363,6 +371,7 @@ export async function launchBrowserSession(options = {}) {
     timezoneId = "America/Chicago",
     advancedFingerprintMode = true,
     usePlaywrightWithFingerprints = true,
+    safeModeSharedBrowserIdleMs = 30000,
     ephemeral = false,
     safeModeEnabled = false
   } = options;
@@ -381,6 +390,7 @@ export async function launchBrowserSession(options = {}) {
     : ["--disable-notifications", "--no-sandbox", "--disable-features=IsolateOrigins,site-per-process"];
   const ignoreDefaultArgs = useChromeChannel ? ["--enable-automation"] : ["--disable-extensions"];
   const channel = useChromeChannel ? "chrome" : undefined;
+  safeCamoufoxIdleMs = Math.max(5000, Number(safeModeSharedBrowserIdleMs) || safeCamoufoxIdleMs);
 
   let context;
   let launchedBrowser = null;
@@ -433,7 +443,12 @@ export async function launchBrowserSession(options = {}) {
         camoufoxBase,
         proxyOpts
       });
+      if (safeCamoufoxIdleTimer) {
+        clearTimeout(safeCamoufoxIdleTimer);
+        safeCamoufoxIdleTimer = null;
+      }
       context = await sharedBrowser.newContext(contextDefaults);
+      safeCamoufoxOpenContexts += 1;
       sharedCamoufoxContext = true;
     } else if (Camoufox) {
       const launched = await Camoufox(
@@ -461,6 +476,7 @@ export async function launchBrowserSession(options = {}) {
           headless,
           proxy: proxyOpts || undefined
         });
+        launchedBrowser = browser;
         context = await browser.newContext(contextDefaults);
       } else {
         context = await firefoxCore.launchPersistentContext(profileDir, {
@@ -527,18 +543,24 @@ export async function launchBrowserSession(options = {}) {
   }
 
   const close = async () => {
-    if (sharedCamoufoxContext) {
-      try {
-        await context.close();
-      } catch {
-        // ignore
-      }
-      return;
+    try {
+      await page?.close?.();
+    } catch {
+      // ignore
     }
     try {
       await context.close();
     } catch {
       // ignore
+    }
+    if (sharedCamoufoxContext) {
+      safeCamoufoxOpenContexts = Math.max(0, safeCamoufoxOpenContexts - 1);
+      if (safeCamoufoxOpenContexts === 0 && safeCamoufoxSharedBrowser) {
+        safeCamoufoxIdleTimer = setTimeout(() => {
+          void closeSafeCamoufoxSharedBrowser();
+        }, safeCamoufoxIdleMs);
+      }
+      return;
     }
     if (launchedBrowser) {
       try {
@@ -553,6 +575,7 @@ export async function launchBrowserSession(options = {}) {
     context,
     browser: context.browser?.() || null,
     page,
+    isSharedCamoufoxContext: sharedCamoufoxContext,
     close
   };
 }
