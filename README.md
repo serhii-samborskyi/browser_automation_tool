@@ -34,6 +34,34 @@ Open:
 
 - `http://localhost:4300`
 
+## Coolify Deployment
+
+The included `Dockerfile` installs Playwright Chromium/Firefox, Google Chrome,
+Camoufox, and Xvfb. It supports all three browser engine options from the UI,
+including headed jobs running in the container's virtual display.
+
+1. Create an application from this repository in Coolify.
+2. Set the build pack to `Dockerfile` and deploy from the repository root.
+3. Set **Ports Exposes** to `3000`.
+4. Set `PORT=3000` and `HOST=0.0.0.0` in Coolify. Those are image defaults,
+   but declaring them makes the deployment configuration explicit.
+5. Add persistent storages with these destination paths:
+
+| Destination | Keeps |
+| --- | --- |
+| `/app/data` | UI settings, run state, and logs |
+| `/app/profile` | browser profiles and cookies |
+| `/app/scripts` | scripts saved or uploaded through the UI |
+| `/home/node/.cache/camoufox` | Camoufox binary cache |
+
+Do not mount a volume at `/app`; it would hide the application files. On the
+first start, the container seeds bundled scripts and the Camoufox binary into
+empty persistent storage automatically.
+
+The Chrome package in this image is for `linux/amd64`. Deploy to an x86_64
+Coolify host when using the `chrome` engine. Restrict access to this app: its
+API can execute uploaded automation scripts and has no authentication layer.
+
 ## Run Commands
 
 - Start normally:
@@ -228,4 +256,3 @@ git branch -M main
 git remote add origin https://github.com/<user>/<repo>.git
 git push -u origin main
 ```
-

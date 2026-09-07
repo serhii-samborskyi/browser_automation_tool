@@ -386,7 +386,10 @@ export async function launchBrowserSession(options = {}) {
     ? chromiumCore
     : await getChromiumEngine(usePlaywrightWithFingerprints);
   const launchArgs = useChromeChannel
-    ? ["--disable-blink-features=AutomationControlled"]
+    ? [
+        "--disable-blink-features=AutomationControlled",
+        ...(process.env.CONTAINERIZED === "true" ? ["--no-sandbox"] : [])
+      ]
     : ["--disable-notifications", "--no-sandbox", "--disable-features=IsolateOrigins,site-per-process"];
   const ignoreDefaultArgs = useChromeChannel ? ["--enable-automation"] : ["--disable-extensions"];
   const channel = useChromeChannel ? "chrome" : undefined;

@@ -1119,6 +1119,7 @@ function listScriptFiles() {
 
 const app = express();
 const port = process.env.PORT || readPortFromIni() || 4000;
+const host = process.env.HOST || "0.0.0.0";
 syncRunSlotLimitsFromConfig(readConfig());
 
 app.use(bodyParser.json({ limit: "4mb" }));
@@ -1456,6 +1457,6 @@ app.post("/api/runs/:id/stop", async (req, res) => {
   res.json({ ok: true });
 });
 
-app.listen(port, () => {
-  console.log(`Playwright automation runner listening on http://localhost:${port}`);
+app.listen(port, host, () => {
+  console.log(`Playwright automation runner listening on http://${host}:${port}`);
 });
