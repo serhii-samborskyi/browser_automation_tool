@@ -462,6 +462,9 @@ export async function launchBrowserSession(options = {}) {
       if (launched?.pages && launched?.newPage && launched?.close) {
         context = launched;
       } else if (launched?.newContext) {
+        // Camoufox returned a Browser rather than a persistent context. Keep
+        // ownership so close() tears down the browser process after its context.
+        launchedBrowser = launched;
         context = await launched.newContext(contextDefaults);
       } else {
         throw new Error("Camoufox returned an unsupported browser object");
