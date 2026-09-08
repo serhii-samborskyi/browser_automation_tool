@@ -22,6 +22,7 @@ const metricGpuSub = document.getElementById("metricGpuSub");
 const metricDisk = document.getElementById("metricDisk");
 const metricDiskSub = document.getElementById("metricDiskSub");
 const appConnectionStatus = document.getElementById("appConnectionStatus");
+const localModeBadge = document.getElementById("localModeBadge");
 const runStatusCard = document.getElementById("runStatusCard");
 const runStatusTitle = document.getElementById("runStatusTitle");
 const runStatusDetail = document.getElementById("runStatusDetail");
@@ -172,7 +173,9 @@ function showToast(message, kind = "success") {
 }
 
 function setActiveSection(sectionName) {
-  const target = String(sectionName || "studio");
+  const requested = String(sectionName || "studio");
+  const target =
+    document.body.classList.contains("local-mode") && ["apis", "network"].includes(requested) ? "studio" : requested;
   sectionTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === target));
   workspaceSections.forEach((section) => {
     const active = section.id === `section-${target}`;
@@ -180,6 +183,12 @@ function setActiveSection(sectionName) {
     section.classList.toggle("active", active);
   });
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function setLocalMode(active) {
+  const enabled = Boolean(active);
+  document.body.classList.toggle("local-mode", enabled);
+  localModeBadge.hidden = !enabled;
 }
 
 function updateConnection(online, detail) {
@@ -308,6 +317,7 @@ async function loadMetrics() {
   try {
     const m = await fetchJson("/api/metrics");
     updateConnection(true, "Server connected");
+    setLocalMode(m?.localMode);
     metricProcesses.textContent = String(m?.processes?.active ?? m?.runs?.activeRunSlots ?? 0);
     metricQueue.textContent = `queued: ${String(m?.processes?.queued ?? m?.runs?.queuedRunSlots ?? 0)}`;
 
@@ -1107,9 +1117,10 @@ function renderStaticProfiles() {
 async function loadApiPlatform({ keepEditor = true } = {}) {
   try {
     const status = await fetchJson("/api/database/status");
+    setLocalMode(status.localMode);
     if (!status.configured || !status.connected) {
       databaseStatus.textContent = status.error || "PostgreSQL is unavailable. Set DATABASE_URL and deploy migrations.";
-      databaseStatus.className = "muted health-bad";
+      databaseStatus.className = `muted ${status.localMode ? "" : "health-bad"}`;
       platformApis = [];
       platformPools = [];
       platformProfiles = [];

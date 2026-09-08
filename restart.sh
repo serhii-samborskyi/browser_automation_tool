@@ -2,6 +2,9 @@
 set -euo pipefail
 
 # Restart the automation runner by freeing the configured port then running npm start.
+# Modes:
+# - --local: scripts, manual runs, and MCP without PostgreSQL.
+# - --full: PostgreSQL-backed API Builder, proxy pools, and managed profiles.
 # Port priority:
 # 1) CLI arg: ./restart.sh 4300 OR ./restart.sh --port 4300
 # 2) PORT env var
@@ -17,6 +20,7 @@ PORT_FROM_ARG=""
 PORT="${PORT:-}"
 FORCE_XVFB="${FORCE_XVFB:-0}"
 DAEMON_MODE="${DAEMON_MODE:-1}"
+LOCAL_MODE="${LOCAL_MODE:-0}"
 
 read_port_from_config() {
   [[ -f "${CFG_FILE}" ]] || return 0
@@ -66,7 +70,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --port)
       if [[ $# -lt 2 ]]; then
-        echo "Usage: $0 [PORT | --port PORT] [--xvfb] [--daemon|--foreground]" >&2
+        echo "Usage: $0 [PORT | --port PORT] [--local|--full] [--xvfb] [--daemon|--foreground]" >&2
         exit 1
       fi
       PORT_FROM_ARG="$2"
@@ -78,6 +82,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-xvfb)
       FORCE_XVFB="0"
+      shift
+      ;;
+    --local)
+      LOCAL_MODE="1"
+      shift
+      ;;
+    --full)
+      LOCAL_MODE="0"
       shift
       ;;
     --daemon)
@@ -131,7 +143,10 @@ echo "Starting server on port ${PORT}..."
 cd "${DIR}"
 mkdir -p "${RUN_DIR}"
 
-START_CMD=(env PORT="${PORT}" npm start)
+START_CMD=(env PORT="${PORT}" LOCAL_MODE="${LOCAL_MODE}" npm start)
+if [[ "${LOCAL_MODE}" == "1" || "${LOCAL_MODE}" == "true" || "${LOCAL_MODE}" == "TRUE" ]]; then
+  echo "Local mode enabled: PostgreSQL-backed API Builder features are disabled."
+fi
 if [[ "$(uname -s)" == "Linux" && ( "${FORCE_XVFB}" == "1" || -z "${DISPLAY:-}" ) ]]; then
   if command -v xvfb-run >/dev/null 2>&1; then
     START_CMD=(xvfb-run -a -s "-screen 0 1920x1080x24 -ac +extension RANDR" "${START_CMD[@]}")

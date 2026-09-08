@@ -1,78 +1,145 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Installs dependencies and starts the app on a static port.
+# Bootstrap Browser API Factory on Ubuntu/Debian and start it on a fixed port.
+# Local mode needs no PostgreSQL and leaves database-backed platform features off.
 # Usage:
-#   ./install_and_run.sh --port 4300
+#   ./install_and_run.sh --local --port 4300
+#   ./install_and_run.sh --full --port 4300
 #   ./install_and_run.sh 4300
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PORT_ARG=""
+PORT="4300"
+MODE="local"
+INSTALL_CHROME="1"
+SUDO=()
 
-if [[ $# -gt 0 ]]; then
+usage() {
+  cat <<EOF
+Usage: $0 [--local|--full] [--port PORT] [--without-chrome]
+
+  --local           Run scripts and the MCP service without PostgreSQL (default).
+  --full            Enable PostgreSQL-backed API Builder features when DATABASE_URL is set.
+  --port PORT       Static port to use (default: 4300).
+  --without-chrome  Skip Google Chrome; Chromium and Camoufox are still installed.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
   case "$1" in
+    --local)
+      MODE="local"
+      shift
+      ;;
+    --full)
+      MODE="full"
+      shift
+      ;;
     --port)
-      if [[ $# -lt 2 ]]; then
-        echo "Usage: $0 [PORT | --port PORT]" >&2
-        exit 1
-      fi
-      PORT_ARG="$2"
+      [[ $# -ge 2 ]] || { usage >&2; exit 1; }
+      PORT="$2"
+      shift 2
+      ;;
+    --without-chrome)
+      INSTALL_CHROME="0"
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
       ;;
     *)
-      PORT_ARG="$1"
+      if [[ "$1" =~ ^[0-9]+$ ]]; then
+        PORT="$1"
+        shift
+      else
+        echo "Unknown argument: $1" >&2
+        usage >&2
+        exit 1
+      fi
       ;;
   esac
-fi
+done
 
-if [[ -z "${PORT_ARG}" ]]; then
-  echo "Port is required. Example: $0 --port 4300" >&2
+if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 1 || PORT > 65535 )); then
+  echo "Invalid port: ${PORT}. Expected 1-65535." >&2
   exit 1
 fi
 
-if ! [[ "${PORT_ARG}" =~ ^[0-9]+$ ]] || (( PORT_ARG < 1 || PORT_ARG > 65535 )); then
-  echo "Invalid port: ${PORT_ARG}. Expected 1-65535." >&2
+if [[ "$(uname -s)" != "Linux" ]] || ! command -v apt-get >/dev/null 2>&1; then
+  echo "This bootstrap currently supports Ubuntu/Debian. Install Node.js 22+, npm, Playwright browsers, and Camoufox manually." >&2
   exit 1
+fi
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  if command -v sudo >/dev/null 2>&1; then
+    SUDO=(sudo)
+  else
+    echo "sudo is required to install Ubuntu packages. Install sudo or run as root." >&2
+    exit 1
+  fi
 fi
 
 cd "${DIR}"
 
-if ! command -v node >/dev/null 2>&1; then
-  echo "Node.js is not installed. Install Node.js 20+ first." >&2
-  exit 1
+echo "[1/7] Installing Ubuntu system dependencies..."
+"${SUDO[@]}" apt-get update
+"${SUDO[@]}" apt-get install -y \
+  ca-certificates curl gnupg git lsof \
+  build-essential make g++ python3 pkg-config xvfb
+
+NODE_MAJOR=0
+if command -v node >/dev/null 2>&1; then
+  NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+fi
+
+if (( NODE_MAJOR < 22 )); then
+  echo "[2/7] Installing Node.js 22..."
+  if (( ${#SUDO[@]} )); then
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+  else
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  fi
+  "${SUDO[@]}" apt-get install -y nodejs
+else
+  echo "[2/7] Node.js $(node --version) is already installed."
 fi
 
 if ! command -v npm >/dev/null 2>&1; then
-  echo "npm is not installed. Install npm first." >&2
+  echo "npm was not installed with Node.js." >&2
   exit 1
 fi
 
-if command -v apt-get >/dev/null 2>&1; then
-  SUDO=""
-  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    if command -v sudo >/dev/null 2>&1; then
-      SUDO="sudo"
-    else
-      echo "sudo is required for apt package install. Install sudo or run as root." >&2
-      exit 1
-    fi
-  fi
-
-  echo "[0/5] Installing system build dependencies (Ubuntu/Debian)..."
-  ${SUDO} apt-get update
-  ${SUDO} apt-get install -y build-essential make g++ python3 pkg-config xvfb
+echo "[3/7] Installing npm dependencies..."
+if [[ -f package-lock.json ]]; then
+  npm ci
+else
+  npm install
 fi
 
-echo "[1/5] Installing npm dependencies..."
-npm install
+echo "[4/7] Installing Playwright operating-system dependencies..."
+"${SUDO[@]}" env "PATH=${PATH}" npx playwright install-deps chromium firefox
 
-echo "[2/5] Installing Playwright browsers (chromium, firefox)..."
-npx playwright install chromium firefox || true
+echo "[5/7] Downloading Playwright browsers and Camoufox..."
+npx playwright install chromium firefox
+npx camoufox-js fetch
 
-echo "[3/5] Fetching Camoufox binaries..."
-npx camoufox-js fetch || true
+if [[ "${INSTALL_CHROME}" == "1" ]] && [[ "$(dpkg --print-architecture)" == "amd64" ]] && ! command -v google-chrome >/dev/null 2>&1; then
+  echo "[6/7] Installing Google Chrome..."
+  CHROME_DEB="$(mktemp --suffix=.deb)"
+  trap 'rm -f "${CHROME_DEB:-}"' EXIT
+  curl -fsSL -o "${CHROME_DEB}" https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+  "${SUDO[@]}" apt-get install -y "${CHROME_DEB}"
+  rm -f "${CHROME_DEB}"
+  trap - EXIT
+else
+  echo "[6/7] Google Chrome already installed or skipped."
+fi
 
-echo "[4/5] Ensuring restart script is executable..."
+echo "[7/7] Starting Browser API Factory in ${MODE} mode on port ${PORT}..."
 chmod +x ./restart.sh
+if [[ "${MODE}" == "local" ]]; then
+  exec ./restart.sh --local --port "${PORT}"
+fi
 
-echo "[5/5] Starting app on static port ${PORT_ARG}..."
-exec ./restart.sh --port "${PORT_ARG}"
+exec ./restart.sh --full --port "${PORT}"

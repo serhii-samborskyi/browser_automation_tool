@@ -16,7 +16,7 @@ import {
   recreateProfile,
   STANDARD_FINGERPRINT_PRESETS
 } from "./browser_setup.js";
-import { DatabaseUnavailableError, disconnectDatabase, getDatabaseStatus } from "./database.js";
+import { DatabaseUnavailableError, disconnectDatabase, getDatabaseStatus, localModeEnabled } from "./database.js";
 import {
   ApiPlatformError,
   addProxiesToPool,
@@ -1380,7 +1380,7 @@ async function handlePublicApiRequest(req, res) {
 }
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, now: new Date().toISOString(), ...getRunSlotStats() });
+  res.json({ ok: true, localMode: localModeEnabled(), now: new Date().toISOString(), ...getRunSlotStats() });
 });
 
 app.get("/api/mcp/config", (req, res) => {
@@ -1402,7 +1402,7 @@ app.get("/api/database/status", async (_req, res) => {
 app.get("/api/metrics", async (_req, res) => {
   try {
     const metrics = await getServerMetricsCached();
-    res.json({ ok: true, ...metrics });
+    res.json({ ok: true, localMode: localModeEnabled(), ...metrics });
   } catch (err) {
     res.status(500).json({ ok: false, error: err?.message || "Failed to collect metrics" });
   }

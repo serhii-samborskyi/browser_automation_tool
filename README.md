@@ -15,30 +15,53 @@ Features:
 
 ## Requirements
 
-- Node.js 22+ recommended
-- npm
-- Linux/macOS (tested on macOS and Linux)
-- PostgreSQL 14+ for API Builder, proxy pools, and profile management
+- Ubuntu/Debian local mode: the installer provisions Node.js 22, browsers, and system dependencies.
+- PostgreSQL 14+ is only required for the full API Builder, proxy pools, and managed profile platform.
+- Coolify/Docker deployment uses full mode and needs PostgreSQL.
 
 ## Quick Start
 
-Run full install + start on static port:
+Run the local script studio without PostgreSQL:
 
 ```bash
-cd /Users/noname/Documents/replit.com/browser_automation_tool
-./install_and_run.sh --port 4300
+./install_and_run.sh --local --port 4300
 ```
 
 This will:
 
-1. install npm packages
-2. install Playwright browsers
-3. fetch Camoufox binaries
-4. start app on selected port
+1. install Ubuntu build, display, and browser dependencies
+2. install Node.js 22 when needed
+3. install npm packages, Playwright, Camoufox, and Google Chrome
+4. start the app in local mode on the selected port
 
 Open:
 
 - `http://localhost:4300`
+
+## Local Ubuntu Mode
+
+Local mode is for manually developing and testing scripts. It stores scripts,
+settings, profiles, and logs in the local project directories and does **not**
+require `DATABASE_URL` or PostgreSQL.
+
+Fresh Ubuntu one-liner (uses the public GitHub repository):
+
+```bash
+sudo apt-get update && sudo apt-get install -y git && git clone https://github.com/serhii-samborskyi/browser_automation_tool.git ~/browser_automation_tool && cd ~/browser_automation_tool && chmod +x install_and_run.sh && ./install_and_run.sh --local --port 4300
+```
+
+The local UI displays `Local mode · DB off` and hides API Builder and Network
+Manager. These capabilities remain available in full mode:
+
+| Available locally | Requires PostgreSQL/full mode |
+| --- | --- |
+| script editor, upload/download, manual browser runs | published HTTP APIs |
+| browser settings, persistent default profile, MCP | proxy pools and rate scheduling |
+| Chromium, Chrome, and Camoufox engines | static/disposable managed profiles |
+
+For a visible browser window, run the app from an Ubuntu desktop terminal with
+**Headless mode** disabled. Over SSH, the installer uses Xvfb automatically;
+headed browser windows run in its virtual display and are not visible.
 
 ## Coolify Deployment
 
@@ -64,7 +87,9 @@ including headed jobs running in the container's virtual display.
 Do not mount a volume at `/app`; it would hide the application files. On the
 first start, the container seeds bundled scripts and the Camoufox binary into
 empty persistent storage automatically. When `DATABASE_URL` is present, the
-container runs `prisma migrate deploy` before it starts the server.
+container runs `prisma migrate deploy` before it starts the server. Do not set
+`LOCAL_MODE` for Coolify; full mode is the default and retains all
+database-backed features.
 
 The Chrome package in this image is for `linux/amd64`. Deploy to an x86_64
 Coolify host when using the `chrome` engine. Restrict access to this app: its
@@ -145,6 +170,16 @@ npm start
 - Restart and force specific port:
 ```bash
 ./restart.sh --port 4300
+```
+
+- Restart local mode on a specific port:
+```bash
+./restart.sh --local --port 4300
+```
+
+- Restart full mode (requires `DATABASE_URL`) on a specific port:
+```bash
+./restart.sh --full --port 4300
 ```
 
 - Install + run shortcut (default 4300):
