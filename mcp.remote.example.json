@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "browser-api-factory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://your-public-domain.example/mcp",
+        "--header",
+        "Authorization: Bearer <your-mcp-token>"
+      ]
+    }
+  }
+}

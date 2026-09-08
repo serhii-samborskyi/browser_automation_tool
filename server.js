@@ -4,9 +4,11 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import util from "util";
+import { randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { execFile } from "child_process";
 import { fileURLToPath } from "url";
 import * as playwright from "playwright";
+import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import {
   launchBrowserSession,
   testProxyConnection,
@@ -40,6 +42,7 @@ import {
   updateProxy,
   updateProxyPool
 } from "./api_platform.js";
+import { createBrowserApiFactoryMcpServer } from "./mcp_server.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,6 +71,7 @@ const DEFAULT_CONFIG = {
   rotateFingerprintWithProfile: false,
   safeModeEnabled: false,
   safeModeMinFreeRamGb: 4,
+  mcpAccessToken: "",
   browserJobTimeoutMs: Math.max(10000, Number(process.env.BROWSER_JOB_TIMEOUT_MS) || 180000),
   camoufoxSharedIdleMs: Math.max(5000, Number(process.env.CAMOUFOX_SHARED_IDLE_MS) || 30000),
   maxConcurrentRunSlots: Math.max(
@@ -122,6 +126,7 @@ function readConfig() {
       rotateFingerprintWithProfile: Boolean(parsed?.rotateFingerprintWithProfile),
       safeModeEnabled: Boolean(parsed?.safeModeEnabled),
       safeModeMinFreeRamGb: normalizePositiveInt(parsed?.safeModeMinFreeRamGb, DEFAULT_CONFIG.safeModeMinFreeRamGb, 1, 64),
+      mcpAccessToken: normalizeMcpAccessToken(parsed?.mcpAccessToken),
       browserJobTimeoutMs: normalizePositiveInt(
         parsed?.browserJobTimeoutMs,
         DEFAULT_CONFIG.browserJobTimeoutMs,
@@ -152,6 +157,7 @@ function readConfig() {
 
 function writeConfig(patch) {
   const next = { ...readConfig(), ...patch };
+  next.mcpAccessToken = normalizeMcpAccessToken(next.mcpAccessToken);
   next.maxConcurrentRunSlots = normalizePositiveInt(
     next.maxConcurrentRunSlots,
     DEFAULT_CONFIG.maxConcurrentRunSlots,
@@ -200,6 +206,10 @@ function normalizePositiveInt(value, fallback, min = 1, max = 10000) {
   if (i < min) return min;
   if (i > max) return max;
   return i;
+}
+
+function normalizeMcpAccessToken(value) {
+  return String(value || "").trim().slice(0, 512);
 }
 
 function readRotationState() {
@@ -463,6 +473,7 @@ async function handleProcessShutdown(reason, err = null) {
     console.log(`[${reason}] cleaning up active browser jobs`);
   }
   await cleanupAllActiveBrowserJobs(reason);
+  await cleanupAllMcpSessions(reason);
   await disconnectDatabase();
 }
 
@@ -1162,10 +1173,121 @@ function listScriptFiles() {
 const app = express();
 const port = process.env.PORT || readPortFromIni() || 4000;
 const host = process.env.HOST || "0.0.0.0";
+const mcpInternalAppUrl = `http://127.0.0.1:${port}`;
+const mcpSessions = new Map();
+const MCP_SESSION_IDLE_MS = 30 * 60 * 1000;
 syncRunSlotLimitsFromConfig(readConfig());
 
 app.use(bodyParser.json({ limit: "4mb" }));
 app.use(express.static(path.join(__dirname, "public")));
+
+function requestedMcpToken(req) {
+  const authorization = String(req.get("authorization") || "").trim();
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+function tokensMatch(expected, received) {
+  const expectedBuffer = Buffer.from(String(expected || ""));
+  const receivedBuffer = Buffer.from(String(received || ""));
+  return (
+    expectedBuffer.length > 0 &&
+    expectedBuffer.length === receivedBuffer.length &&
+    timingSafeEqual(expectedBuffer, receivedBuffer)
+  );
+}
+
+function requireMcpAccess(req, res, next) {
+  const expectedToken = readConfig().mcpAccessToken;
+  if (!expectedToken) {
+    return res.status(503).json({
+      ok: false,
+      error: "Remote MCP is disabled. Generate and save an MCP access token in Browser Settings first."
+    });
+  }
+  if (!tokensMatch(expectedToken, requestedMcpToken(req))) {
+    res.set("WWW-Authenticate", 'Bearer realm="Browser API Factory MCP"');
+    return res.status(401).json({ ok: false, error: "Invalid or missing MCP bearer token." });
+  }
+  return next();
+}
+
+async function closeMcpSession(sessionId, reason = "closed") {
+  const session = mcpSessions.get(sessionId);
+  if (!session) return;
+  mcpSessions.delete(sessionId);
+  await session.server.close().catch(() => {});
+  console.log(`[mcp] session ${sessionId} ${reason}`);
+}
+
+async function cleanupAllMcpSessions(reason = "shutdown") {
+  await Promise.all([...mcpSessions.keys()].map((sessionId) => closeMcpSession(sessionId, reason)));
+}
+
+async function cleanupIdleMcpSessions() {
+  const cutoff = Date.now() - MCP_SESSION_IDLE_MS;
+  const stale = [...mcpSessions.entries()]
+    .filter(([, session]) => Number(session.lastActivity || 0) < cutoff)
+    .map(([sessionId]) => sessionId);
+  await Promise.all(stale.map((sessionId) => closeMcpSession(sessionId, "expired after 30m idle")));
+}
+
+const mcpSessionCleanupTimer = setInterval(() => {
+  void cleanupIdleMcpSessions();
+}, 60 * 1000);
+mcpSessionCleanupTimer.unref?.();
+
+function sendMcpProtocolError(res, status, message) {
+  return res.status(status).json({
+    jsonrpc: "2.0",
+    error: { code: -32000, message },
+    id: null
+  });
+}
+
+async function handleMcpHttp(req, res) {
+  const requestedSessionId = String(req.get("mcp-session-id") || "").trim();
+  let session = requestedSessionId ? mcpSessions.get(requestedSessionId) : null;
+  let createdSession = null;
+
+  if (requestedSessionId && !session) {
+    return sendMcpProtocolError(res, 404, "MCP session not found. Initialize a new session.");
+  }
+
+  if (!session) {
+    const server = createBrowserApiFactoryMcpServer({ appUrl: mcpInternalAppUrl });
+    let transport;
+    transport = new NodeStreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      enableJsonResponse: true,
+      onsessioninitialized: (sessionId) => {
+        createdSession = sessionId;
+        mcpSessions.set(sessionId, { server, transport, lastActivity: Date.now() });
+        console.log(`[mcp] session ${sessionId} initialized`);
+      },
+      onsessionclosed: (sessionId) => {
+        const activeSession = mcpSessions.get(sessionId);
+        mcpSessions.delete(sessionId);
+        void activeSession?.server.close().catch(() => {});
+        console.log(`[mcp] session ${sessionId} closed by client`);
+      }
+    });
+    await server.connect(transport);
+    session = { server, transport, lastActivity: Date.now() };
+  }
+
+  session.lastActivity = Date.now();
+  try {
+    await session.transport.handleRequest(req, res, req.body);
+  } catch (error) {
+    console.error("[mcp] request failed", error?.message || error);
+    if (!res.headersSent) sendMcpProtocolError(res, 500, "MCP request failed.");
+  } finally {
+    if (!requestedSessionId && !createdSession) {
+      await session.server.close().catch(() => {});
+    }
+  }
+}
 
 function sendPlatformError(res, err) {
   if (err instanceof DatabaseUnavailableError) {
@@ -1208,6 +1330,32 @@ function publicRequestOrigin(req) {
   return `${protocol}://${host}`;
 }
 
+function remoteMcpDetails(req, token = readConfig().mcpAccessToken) {
+  const endpoint = `${publicRequestOrigin(req)}/mcp`;
+  const bearerHeader = token ? `Authorization: Bearer ${token}` : "Authorization: Bearer <your-mcp-token>";
+  return {
+    enabled: Boolean(token),
+    endpoint,
+    token: token || null,
+    mcpRemoteConfig: {
+      mcpServers: {
+        "browser-api-factory": {
+          command: "npx",
+          args: ["-y", "mcp-remote", endpoint, "--header", bearerHeader]
+        }
+      }
+    },
+    directRemoteConfig: {
+      mcpServers: {
+        "browser-api-factory": {
+          url: endpoint,
+          headers: { Authorization: bearerHeader }
+        }
+      }
+    }
+  };
+}
+
 async function handlePublicApiDocumentation(req, res) {
   try {
     res.json(await getPublicApiDocumentation(req.params.slug, publicRequestOrigin(req)));
@@ -1234,6 +1382,18 @@ async function handlePublicApiRequest(req, res) {
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, now: new Date().toISOString(), ...getRunSlotStats() });
 });
+
+app.get("/api/mcp/config", (req, res) => {
+  res.json({ ok: true, ...remoteMcpDetails(req) });
+});
+
+app.post("/api/mcp/token", (req, res) => {
+  const token = `mcp_${randomBytes(32).toString("base64url")}`;
+  writeConfig({ mcpAccessToken: token });
+  res.json({ ok: true, ...remoteMcpDetails(req, token) });
+});
+
+app.all("/mcp", requireMcpAccess, handleMcpHttp);
 
 app.get("/api/database/status", async (_req, res) => {
   res.json(await getDatabaseStatus());
@@ -1287,6 +1447,8 @@ app.post("/api/config", (req, res) => {
       1,
       64
     ),
+    mcpAccessToken:
+      body.mcpAccessToken === undefined ? readConfig().mcpAccessToken : normalizeMcpAccessToken(body.mcpAccessToken),
     browserJobTimeoutMs: normalizePositiveInt(
       body.browserJobTimeoutMs,
       DEFAULT_CONFIG.browserJobTimeoutMs,

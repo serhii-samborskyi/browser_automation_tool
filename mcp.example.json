@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "browser-api-factory": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/browser_automation_tool/mcp_server.js"
+      ],
+      "env": {
+        "BROWSER_API_URL": "http://127.0.0.1:4300",
+        "BROWSER_API_TIMEOUT_MS": "300000"
+      }
+    }
+  }
+}

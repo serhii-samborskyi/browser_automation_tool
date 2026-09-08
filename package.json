@@ -11,9 +11,12 @@
     "install-and-run": "bash ./install_and_run.sh --port 4300",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "mcp": "node ./mcp_server.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@prisma/client": "^6.19.3",
     "body-parser": "^1.20.2",
     "camoufox-js": "^0.10.2",
@@ -23,7 +26,8 @@
     "playwright": "^1.48.2",
     "playwright-extra": "^4.3.6",
     "prisma": "^6.19.3",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "zod": "^4.5.4"
   },
   "optionalDependencies": {
     "playwright-with-fingerprints": "^1.3.22"

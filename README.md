@@ -11,6 +11,7 @@ Features:
 - static and dynamic proxy pools with per-domain, per-proxy hourly limits
 - static browser profiles and automatically cleaned disposable profiles
 - profile recreation + fingerprint rotation controls
+- protected remote MCP endpoint for coding agents
 
 ## Requirements
 
@@ -150,6 +151,101 @@ npm start
 ```bash
 npm run install-and-run
 ```
+
+## Remote MCP (Public Domain)
+
+The app exposes a protected Streamable HTTP MCP endpoint at:
+
+```text
+https://your-public-domain.example/mcp
+```
+
+In **Browser Settings** > **Public MCP**, click **Generate New Token**, then
+click **Copy Claude / Cursor Config**. The UI creates a ready-to-paste config
+using the public domain of the current deployment. No project checkout or
+local `mcp_server.js` file is required on the MCP client machine.
+
+The copied config uses `mcp-remote`, matching the common Claude Desktop/Cursor
+setup pattern:
+
+```json
+{
+  "mcpServers": {
+    "browser-api-factory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://your-public-domain.example/mcp",
+        "--header",
+        "Authorization: Bearer <your-mcp-token>"
+      ]
+    }
+  }
+}
+```
+
+Clients with native remote-MCP support can connect directly to the endpoint
+and send the same `Authorization: Bearer <your-mcp-token>` header. A generic
+template is in `mcp.remote.example.json`.
+
+The endpoint is disabled until a token is generated. Every MCP request,
+including session setup, requires that bearer token. Rotating the token stops
+existing clients from making further requests. Keep the app private and treat
+the token like an administrator credential: MCP can read, modify, delete, and
+execute browser scripts.
+
+## Local MCP Bridge (Optional)
+
+`mcp_server.js` is a local stdio MCP bridge for trusted coding agents. It talks
+to the already running Browser API Factory over HTTP, so browser debugging and
+script runs use the engine, profile, proxy, fingerprint, and queue settings
+currently selected in the app.
+
+Start the Browser API Factory first, then add the following block to your MCP
+client configuration. Use the absolute project path on the machine where the
+MCP client runs. A copyable template is also available in `mcp.example.json`.
+
+```json
+{
+  "mcpServers": {
+    "browser-api-factory": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/browser_automation_tool/mcp_server.js"
+      ],
+      "env": {
+        "BROWSER_API_URL": "http://127.0.0.1:4300",
+        "BROWSER_API_TIMEOUT_MS": "300000"
+      }
+    }
+  }
+}
+```
+
+For an app on another trusted machine, set `BROWSER_API_URL` to that app's
+private URL instead. The MCP process communicates through stdio, so configure
+the client with `node .../mcp_server.js`, not `npm run mcp`; MCP reserves
+standard output for protocol messages.
+
+Available tools:
+
+- `browser_factory_status`: verify that the app is running and inspect the redacted active browser configuration.
+- `browser_factory_list_scripts`, `browser_factory_read_script`, `browser_factory_write_script`, and `browser_factory_delete_script`: manage saved automation code.
+- `browser_factory_run_script`: run a saved script with `input` values and receive its JSON result plus browser logs.
+- `browser_factory_debug_page`: navigate with the configured browser, inspect a selector, return text/HTML, and optionally receive a screenshot.
+- `browser_factory_debug_run`: run temporary Playwright code with the normal script runtime objects. Its temporary script is always deleted after the run.
+
+Recommended agent workflow: call `browser_factory_status`, inspect an existing
+script, use `browser_factory_debug_page` to identify selectors, use
+`browser_factory_debug_run` for a focused experiment, then save and run the
+final script. Debug screenshots are stored under `data/mcp-debug/` and are
+returned inline to MCP clients that support image results; old screenshots are
+automatically removed after one hour.
+
+This bridge can read, modify, delete, and execute browser scripts. Only attach
+it to trusted local agents and keep the Browser API Factory private or behind
+your network access controls.
 
 ## Browser Engines
 

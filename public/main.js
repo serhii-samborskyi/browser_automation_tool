@@ -51,6 +51,9 @@ const measureTrafficUsage = document.getElementById("measureTrafficUsage");
 const keepBrowserOpenOnFinish = document.getElementById("keepBrowserOpenOnFinish");
 const rotateFingerprintWithProfile = document.getElementById("rotateFingerprintWithProfile");
 const safeModeEnabled = document.getElementById("safeModeEnabled");
+const mcpAccessToken = document.getElementById("mcpAccessToken");
+const mcpEndpoint = document.getElementById("mcpEndpoint");
+const mcpSetupResult = document.getElementById("mcpSetupResult");
 const proxyTestResult = document.getElementById("proxyTestResult");
 const fingerprintPreset = document.getElementById("fingerprintPreset");
 
@@ -67,6 +70,9 @@ const refreshRunsBtn = document.getElementById("refreshRunsBtn");
 const clearRunsBtn = document.getElementById("clearRunsBtn");
 const recreateProfileBtn = document.getElementById("recreateProfileBtn");
 const applyPresetBtn = document.getElementById("applyPresetBtn");
+const generateMcpTokenBtn = document.getElementById("generateMcpTokenBtn");
+const copyMcpEndpointBtn = document.getElementById("copyMcpEndpointBtn");
+const copyMcpConfigBtn = document.getElementById("copyMcpConfigBtn");
 
 const databaseStatus = document.getElementById("databaseStatus");
 const importLegacyBtn = document.getElementById("importLegacyBtn");
@@ -295,6 +301,7 @@ async function loadConfig() {
   keepBrowserOpenOnFinish.checked = Boolean(cfg.keepBrowserOpenOnFinish);
   rotateFingerprintWithProfile.checked = Boolean(cfg.rotateFingerprintWithProfile);
   safeModeEnabled.checked = Boolean(cfg.safeModeEnabled);
+  mcpAccessToken.value = cfg.mcpAccessToken || "";
 }
 
 async function loadMetrics() {
@@ -362,7 +369,7 @@ function applySelectedPreset() {
 }
 
 async function saveConfig() {
-  await fetchJson("/api/config", {
+  return await fetchJson("/api/config", {
     method: "POST",
     body: JSON.stringify({
       profileName: profileName.value.trim() || "default",
@@ -386,9 +393,48 @@ async function saveConfig() {
       measureTrafficUsage: measureTrafficUsage.checked,
       keepBrowserOpenOnFinish: keepBrowserOpenOnFinish.checked,
       rotateFingerprintWithProfile: rotateFingerprintWithProfile.checked,
-      safeModeEnabled: safeModeEnabled.checked
+      safeModeEnabled: safeModeEnabled.checked,
+      mcpAccessToken: mcpAccessToken.value.trim()
     })
   });
+}
+
+let latestMcpDetails = null;
+
+async function loadMcpDetails() {
+  const details = await fetchJson("/api/mcp/config");
+  latestMcpDetails = details;
+  mcpEndpoint.value = details.endpoint || "";
+  if (!mcpAccessToken.value && details.token) mcpAccessToken.value = details.token;
+  mcpSetupResult.textContent = details.enabled
+    ? "Remote MCP is enabled. Keep this token private."
+    : "Generate a token, then copy the ready-to-paste MCP configuration.";
+  return details;
+}
+
+async function copyMcpText(value, button, successText) {
+  if (!value) throw new Error("Nothing is available to copy yet.");
+  const oldText = button.textContent;
+  await navigator.clipboard.writeText(value);
+  button.textContent = successText;
+  setTimeout(() => {
+    button.textContent = oldText;
+  }, 1200);
+}
+
+async function generateMcpToken() {
+  if (mcpAccessToken.value && !confirm("Generate a new token? Existing remote MCP clients will stop working.")) return;
+  const details = await fetchJson("/api/mcp/token", { method: "POST", body: "{}" });
+  mcpAccessToken.value = details.token || "";
+  latestMcpDetails = details;
+  mcpEndpoint.value = details.endpoint || "";
+  mcpSetupResult.textContent = "New remote MCP token generated. Copy the configuration into your MCP client.";
+}
+
+async function copyRemoteMcpConfig() {
+  const details = latestMcpDetails || (await loadMcpDetails());
+  if (!details.enabled) throw new Error("Generate and save an MCP access token first.");
+  await copyMcpText(JSON.stringify(details.mcpRemoteConfig, null, 2), copyMcpConfigBtn, "Config copied");
 }
 
 async function recreateProfile() {
@@ -1318,6 +1364,7 @@ saveConfigBtn.addEventListener("click", async () => {
   try {
     setButtonLoading(saveConfigBtn, true, "Saving...");
     await saveConfig();
+    await loadMcpDetails();
     showToast("Browser setup saved.");
   } catch (err) {
     const message = errorMessage(err);
@@ -1331,6 +1378,31 @@ refreshRunsBtn.addEventListener("click", loadRuns);
 clearRunsBtn.addEventListener("click", clearRuns);
 recreateProfileBtn.addEventListener("click", recreateProfile);
 applyPresetBtn.addEventListener("click", applySelectedPreset);
+generateMcpTokenBtn.addEventListener("click", async () => {
+  try {
+    setButtonLoading(generateMcpTokenBtn, true, "Generating...");
+    await generateMcpToken();
+    showToast("New MCP access token generated.");
+  } catch (err) {
+    showToast(`Could not generate MCP token: ${errorMessage(err)}`, "error");
+  } finally {
+    setButtonLoading(generateMcpTokenBtn, false);
+  }
+});
+copyMcpEndpointBtn.addEventListener("click", async () => {
+  try {
+    await copyMcpText(mcpEndpoint.value, copyMcpEndpointBtn, "URL copied");
+  } catch (err) {
+    showToast(`Could not copy MCP URL: ${errorMessage(err)}`, "error");
+  }
+});
+copyMcpConfigBtn.addEventListener("click", async () => {
+  try {
+    await copyRemoteMcpConfig();
+  } catch (err) {
+    showToast(`Could not copy MCP configuration: ${errorMessage(err)}`, "error");
+  }
+});
 addSyncInputBtn.addEventListener("click", () => addSyncInputRow("", ""));
 runSyncBtn.addEventListener("click", runSyncTest);
 newApiBtn.addEventListener("click", resetApiEditor);
@@ -1369,7 +1441,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 async function init() {
-  await Promise.all([loadConfig(), loadPresets(), loadScripts(), loadRuns(), loadMetrics()]);
+  await Promise.all([loadConfig(), loadMcpDetails(), loadPresets(), loadScripts(), loadRuns(), loadMetrics()]);
   addSyncInputRow("var", "");
   addSyncInputRow("var2", "");
   await loadApiPlatform({ keepEditor: false });
