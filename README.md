@@ -31,7 +31,7 @@ This will:
 
 1. install Ubuntu build, display, and browser dependencies
 2. install Node.js 22 when needed
-3. install npm packages, Playwright, Camoufox, and Google Chrome
+3. install npm packages, Playwright Chromium, Camoufox, and Google Chrome
 4. start the app in local mode on the selected port
 
 Open:
@@ -62,6 +62,10 @@ Manager. These capabilities remain available in full mode:
 For a visible browser window, run the app from an Ubuntu desktop terminal with
 **Headless mode** disabled. Over SSH, the installer uses Xvfb automatically;
 headed browser windows run in its virtual display and are not visible.
+
+Ubuntu 26.04 is newer than the current Playwright platform matrix. The
+installer automatically downloads and runs Playwright's Ubuntu 24.04-compatible
+browser builds on Ubuntu 26.04 x86_64.
 
 ## Coolify Deployment
 

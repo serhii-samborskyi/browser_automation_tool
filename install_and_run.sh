@@ -14,6 +14,18 @@ MODE="local"
 INSTALL_CHROME="1"
 SUDO=()
 
+playwright_platform_override() {
+  local version arch
+  [[ -r /etc/os-release ]] || return 0
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  version="${VERSION_ID:-}"
+  arch="$(dpkg --print-architecture)"
+  if [[ "${ID:-}" == "ubuntu" && "${version%%.*}" -ge 26 && "${arch}" == "amd64" ]]; then
+    echo "ubuntu24.04-x64"
+  fi
+}
+
 usage() {
   cat <<EOF
 Usage: $0 [--local|--full] [--port PORT] [--without-chrome]
@@ -117,11 +129,24 @@ else
   npm install
 fi
 
-echo "[4/7] Installing Playwright operating-system dependencies..."
-"${SUDO[@]}" env "PATH=${PATH}" npx playwright install-deps chromium firefox
+PLAYWRIGHT_PLATFORM_OVERRIDE="$(playwright_platform_override)"
+if [[ -n "${PLAYWRIGHT_PLATFORM_OVERRIDE}" ]]; then
+  echo "Ubuntu ${VERSION_ID} is newer than this Playwright release; using ${PLAYWRIGHT_PLATFORM_OVERRIDE} compatibility downloads."
+fi
+
+echo "[4/7] Installing Playwright Chromium operating-system dependencies..."
+if [[ -n "${PLAYWRIGHT_PLATFORM_OVERRIDE}" ]]; then
+  "${SUDO[@]}" env "PATH=${PATH}" "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=${PLAYWRIGHT_PLATFORM_OVERRIDE}" npx playwright install-deps chromium
+else
+  "${SUDO[@]}" env "PATH=${PATH}" npx playwright install-deps chromium
+fi
 
 echo "[5/7] Downloading Playwright browsers and Camoufox..."
-npx playwright install chromium firefox
+if [[ -n "${PLAYWRIGHT_PLATFORM_OVERRIDE}" ]]; then
+  PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="${PLAYWRIGHT_PLATFORM_OVERRIDE}" npx playwright install chromium
+else
+  npx playwright install chromium
+fi
 npx camoufox-js fetch
 
 if [[ "${INSTALL_CHROME}" == "1" ]] && [[ "$(dpkg --print-architecture)" == "amd64" ]] && ! command -v google-chrome >/dev/null 2>&1; then

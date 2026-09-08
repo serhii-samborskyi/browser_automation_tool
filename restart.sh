@@ -22,6 +22,18 @@ FORCE_XVFB="${FORCE_XVFB:-0}"
 DAEMON_MODE="${DAEMON_MODE:-1}"
 LOCAL_MODE="${LOCAL_MODE:-0}"
 
+playwright_platform_override() {
+  local version arch
+  [[ -r /etc/os-release ]] || return 0
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  version="${VERSION_ID:-}"
+  arch="$(dpkg --print-architecture)"
+  if [[ "${ID:-}" == "ubuntu" && "${version%%.*}" -ge 26 && "${arch}" == "amd64" ]]; then
+    echo "ubuntu24.04-x64"
+  fi
+}
+
 read_port_from_config() {
   [[ -f "${CFG_FILE}" ]] || return 0
   grep -E '^port[[:space:]]*=' "${CFG_FILE}" | tail -n1 | sed -E 's/[^0-9]*([0-9]+).*/\1/' || true
@@ -143,7 +155,12 @@ echo "Starting server on port ${PORT}..."
 cd "${DIR}"
 mkdir -p "${RUN_DIR}"
 
+PLAYWRIGHT_PLATFORM_OVERRIDE="$(playwright_platform_override)"
 START_CMD=(env PORT="${PORT}" LOCAL_MODE="${LOCAL_MODE}" npm start)
+if [[ -n "${PLAYWRIGHT_PLATFORM_OVERRIDE}" ]]; then
+  START_CMD=(env PORT="${PORT}" LOCAL_MODE="${LOCAL_MODE}" "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=${PLAYWRIGHT_PLATFORM_OVERRIDE}" npm start)
+  echo "Using Playwright ${PLAYWRIGHT_PLATFORM_OVERRIDE} compatibility mode."
+fi
 if [[ "${LOCAL_MODE}" == "1" || "${LOCAL_MODE}" == "true" || "${LOCAL_MODE}" == "TRUE" ]]; then
   echo "Local mode enabled: PostgreSQL-backed API Builder features are disabled."
 fi
