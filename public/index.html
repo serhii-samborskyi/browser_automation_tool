@@ -3,473 +3,179 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0d3b36" />
   <title>Browser API Factory</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <section class="metrics-bar panel">
-    <div class="metric-card">
-      <span class="metric-label">Processes</span>
-      <strong id="metricProcesses" class="metric-value">-</strong>
-      <small id="metricQueue" class="metric-sub">queued: -</small>
-    </div>
-    <div class="metric-card">
-      <span class="metric-label">CPU</span>
-      <strong id="metricCpu" class="metric-value">-</strong>
-      <small id="metricCpuSub" class="metric-sub">node: -</small>
-    </div>
-    <div class="metric-card">
-      <span class="metric-label">RAM</span>
-      <strong id="metricRam" class="metric-value">-</strong>
-      <small id="metricRamSub" class="metric-sub">node RSS: -</small>
-    </div>
-    <div class="metric-card">
-      <span class="metric-label">GPU</span>
-      <strong id="metricGpu" class="metric-value">-</strong>
-      <small id="metricGpuSub" class="metric-sub">mem: -</small>
-    </div>
-    <div class="metric-card">
-      <span class="metric-label">DISK</span>
-      <strong id="metricDisk" class="metric-value">-</strong>
-      <small id="metricDiskSub" class="metric-sub">used: -</small>
-    </div>
-  </section>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <div>
+          <p class="eyebrow">Automation control plane</p>
+          <h1>Browser API Factory</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="appConnectionStatus" class="connection-status"><span></span> Checking server</span>
+        <button id="apiDocsBtn" class="ghost icon-button" type="button">Documentation</button>
+      </div>
+    </header>
 
-  <main class="layout">
-    <aside class="panel scripts-panel">
-      <div class="panel-head">
-        <h2>API Code</h2>
-        <div class="row">
-          <button id="apiDocsBtn" class="ghost">API Docs</button>
-          <button id="newScriptBtn" class="ghost">New Code</button>
-        </div>
-      </div>
-      <div id="scriptsList" class="scripts-list"></div>
-    </aside>
+    <nav class="section-nav" aria-label="Application sections">
+      <button class="section-tab active" data-section="studio" type="button"><span>01</span> Studio</button>
+      <button class="section-tab" data-section="apis" type="button"><span>02</span> APIs</button>
+      <button class="section-tab" data-section="network" type="button"><span>03</span> Network &amp; Profiles</button>
+      <button class="section-tab" data-section="settings" type="button"><span>04</span> Browser Settings</button>
+    </nav>
 
-    <section class="panel editor-panel">
-      <div class="panel-head">
-        <h2 id="currentScriptTitle">No API code selected</h2>
-        <div class="row">
-          <button id="downloadScriptBtn" class="ghost">Download</button>
-          <button id="uploadScriptBtn" class="ghost">Upload</button>
-          <button id="saveScriptBtn" class="ghost">Save</button>
-          <button id="deleteScriptBtn" class="ghost danger">Delete</button>
-          <button id="runScriptBtn">Run Code</button>
-        </div>
-      </div>
-      <input id="uploadScriptInput" type="file" accept=".js,text/javascript,application/javascript" class="hidden" />
-      <textarea id="scriptEditor" spellcheck="false"></textarea>
-      <div class="sync-tester">
-        <div class="panel-head">
-          <h3>Code Input Tester</h3>
-          <button id="addSyncInputBtn" class="ghost small">Add Input</button>
-        </div>
-        <div id="syncInputsList" class="sync-inputs"></div>
-        <label class="checkbox">
-          <input id="syncIncludeLogs" type="checkbox" />
-          <span>includeLogs=true</span>
-        </label>
-        <div class="row">
-          <button id="runSyncBtn" class="ghost">Run Sync</button>
-        </div>
-        <pre id="syncResult" class="logs sync-result"></pre>
-      </div>
+    <section class="metrics-bar" aria-label="Server metrics">
+      <div class="metric-card"><span class="metric-label">Active processes</span><strong id="metricProcesses" class="metric-value">-</strong><small id="metricQueue" class="metric-sub">queued: -</small></div>
+      <div class="metric-card"><span class="metric-label">CPU</span><strong id="metricCpu" class="metric-value">-</strong><small id="metricCpuSub" class="metric-sub">node: -</small></div>
+      <div class="metric-card"><span class="metric-label">Memory</span><strong id="metricRam" class="metric-value">-</strong><small id="metricRamSub" class="metric-sub">node RSS: -</small></div>
+      <div class="metric-card"><span class="metric-label">GPU</span><strong id="metricGpu" class="metric-value">-</strong><small id="metricGpuSub" class="metric-sub">mem: -</small></div>
+      <div class="metric-card"><span class="metric-label">Disk</span><strong id="metricDisk" class="metric-value">-</strong><small id="metricDiskSub" class="metric-sub">used: -</small></div>
     </section>
 
-    <aside class="panel settings-panel">
-      <div class="panel-head"><h2>Browser Setup</h2></div>
-
-      <label>Profile Name</label>
-      <input id="profileName" placeholder="default" />
-      <button id="recreateProfileBtn" class="ghost">Recreate Profile</button>
-
-      <label>Browser Engine</label>
-      <select id="browserEngine">
-        <option value="chromium">Chromium (Current Anti-Detect Setup)</option>
-        <option value="chrome">Google Chrome (Regular)</option>
-        <option value="camoufox">Camoufox</option>
-      </select>
-
-      <label>Standard Preset</label>
-      <div class="row">
-        <select id="fingerprintPreset"></select>
-        <button id="applyPresetBtn" class="ghost">Apply</button>
-      </div>
-
-      <label>Proxy</label>
-      <input id="proxy" placeholder="host:port or user:pass@host:port" />
-
-      <label>User Agent</label>
-      <textarea id="userAgent" rows="3" placeholder="Optional"></textarea>
-
-      <div class="row">
-        <div>
-          <label>Viewport W</label>
-          <input id="viewportWidth" type="number" min="320" />
+    <main class="workspace">
+      <section id="section-studio" class="workspace-section active" aria-labelledby="studioHeading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Build and test</p>
+            <h2 id="studioHeading">Automation Studio</h2>
+            <p class="section-copy">Write browser automation, pass test inputs, and inspect every execution in one focused workspace.</p>
+          </div>
+          <div id="runStatusCard" class="run-status-card idle" aria-live="polite">
+            <span class="run-status-dot"></span>
+            <div><strong id="runStatusTitle">Ready to run</strong><small id="runStatusDetail">Choose API code and start an execution.</small></div>
+          </div>
         </div>
-        <div>
-          <label>Viewport H</label>
-          <input id="viewportHeight" type="number" min="320" />
+
+        <div class="studio-grid">
+          <aside class="panel code-library">
+            <div class="panel-head">
+              <div><p class="eyebrow">Code library</p><h3>API Code</h3></div>
+              <button id="newScriptBtn" class="ghost small" type="button">New</button>
+            </div>
+            <p class="muted">Each file can be run manually or published as an HTTP API.</p>
+            <div id="scriptsList" class="scripts-list"></div>
+          </aside>
+
+          <section class="panel editor-panel">
+            <div class="panel-head editor-head">
+              <div><p class="eyebrow">Editor</p><h3 id="currentScriptTitle">No API code selected</h3></div>
+              <div class="action-row editor-actions">
+                <button id="downloadScriptBtn" class="ghost small" type="button">Download</button>
+                <button id="uploadScriptBtn" class="ghost small" type="button">Upload</button>
+                <button id="saveScriptBtn" class="ghost small" type="button">Save</button>
+                <button id="deleteScriptBtn" class="ghost danger small" type="button">Delete</button>
+                <button id="runScriptBtn" class="primary-button" type="button"><span class="button-spinner" aria-hidden="true"></span><span class="button-label">Run Code</span></button>
+              </div>
+            </div>
+            <input id="uploadScriptInput" type="file" accept=".js,text/javascript,application/javascript" class="hidden" />
+            <textarea id="scriptEditor" spellcheck="false" aria-label="Automation code editor" placeholder="Select or create API code to begin."></textarea>
+
+            <section class="subsection sync-tester" aria-labelledby="testerHeading">
+              <div class="panel-head">
+                <div><p class="eyebrow">Test request</p><h3 id="testerHeading">Code Input Tester</h3></div>
+                <button id="addSyncInputBtn" class="ghost small" type="button">Add input</button>
+              </div>
+              <div id="syncInputsList" class="sync-inputs"></div>
+              <div class="test-actions">
+                <label class="checkbox"><input id="syncIncludeLogs" type="checkbox" /><span>Return browser logs</span></label>
+                <button id="runSyncBtn" class="secondary-button" type="button"><span class="button-spinner" aria-hidden="true"></span><span class="button-label">Run sync test</span></button>
+              </div>
+              <pre id="syncResult" class="logs sync-result" aria-live="polite">Test results will appear here.</pre>
+            </section>
+          </section>
+
+          <aside class="panel run-panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">Live activity</p><h3>Manual Code Runs</h3></div>
+              <div class="action-row compact-actions"><button id="refreshRunsBtn" class="ghost small" type="button">Refresh</button><button id="clearRunsBtn" class="ghost danger small" type="button">Clear</button></div>
+            </div>
+            <div id="runsList" class="runs-list"></div>
+            <div class="subsection run-log-section"><div class="subsection-title"><span>Execution logs</span><small>Live polling every 2.5s</small></div><pre id="runLogs" class="logs">Select a run to inspect its logs.</pre></div>
+          </aside>
         </div>
-      </div>
-
-      <label>Locale</label>
-      <input id="locale" placeholder="en-US" />
-
-      <label>Timezone</label>
-      <input id="timezoneId" placeholder="America/Chicago" />
-
-      <label>Timeout (ms)</label>
-      <input id="timeoutMs" type="number" min="1000" step="1000" />
-
-      <label>Rotate Profile Every (requests)</label>
-      <input id="rotateProfileEveryNRequests" type="number" min="0" step="1" placeholder="0 = disabled" />
-
-      <label>Max Concurrent Runs</label>
-      <input id="maxConcurrentRunSlots" type="number" min="1" step="1" />
-
-      <label>Max Queued Runs</label>
-      <input id="maxQueuedRunSlots" type="number" min="1" step="1" />
-
-      <label>Safe Mode Min Free RAM (GB)</label>
-      <input id="safeModeMinFreeRamGb" type="number" min="1" step="1" />
-
-      <label>Browser Job Timeout (ms)</label>
-      <input id="browserJobTimeoutMs" type="number" min="10000" step="1000" />
-
-      <label>Camoufox Shared Idle Close (ms)</label>
-      <input id="camoufoxSharedIdleMs" type="number" min="5000" step="1000" />
-
-      <label class="checkbox">
-        <input id="headless" type="checkbox" />
-        <span>Headless mode</span>
-      </label>
-      <label class="checkbox">
-        <input id="advancedFingerprintMode" type="checkbox" />
-        <span>Advanced fingerprint mode</span>
-      </label>
-      <label class="checkbox">
-        <input id="usePlaywrightWithFingerprints" type="checkbox" />
-        <span>Use playwright-with-fingerprints engine</span>
-      </label>
-      <label class="checkbox">
-        <input id="measureTrafficUsage" type="checkbox" />
-        <span>Measure traffic usage per run</span>
-      </label>
-      <label class="checkbox">
-        <input id="keepBrowserOpenOnFinish" type="checkbox" />
-        <span>Keep browser open after run completes</span>
-      </label>
-      <label class="checkbox">
-        <input id="rotateFingerprintWithProfile" type="checkbox" />
-        <span>Rotate fingerprint preset with profile recreation</span>
-      </label>
-      <label class="checkbox">
-        <input id="safeModeEnabled" type="checkbox" />
-        <span>Safe mode (RAM guard + Camoufox shared browser)</span>
-      </label>
-
-      <div class="row">
-        <button id="saveConfigBtn" class="ghost">Save Setup</button>
-        <button id="testProxyBtn" class="ghost">Test Proxy</button>
-      </div>
-      <p id="proxyTestResult" class="muted"></p>
-    </aside>
-  </main>
-
-  <section class="panel api-platform-panel">
-    <div class="panel-head">
-      <div>
-        <h2>API Builder</h2>
-        <p id="databaseStatus" class="muted">Checking PostgreSQL connection...</p>
-      </div>
-      <div class="row compact-row">
-        <button id="importLegacyBtn" class="ghost">Import Existing Code</button>
-        <button id="newApiBtn" class="ghost">New API</button>
-      </div>
-    </div>
-
-    <div class="api-platform-grid">
-      <section class="manager-column">
-        <h3>Published APIs</h3>
-        <div id="apisList" class="manager-list"></div>
       </section>
 
-      <section class="manager-editor">
-        <div class="panel-head">
-          <h3 id="apiEditorTitle">Create API</h3>
-          <span id="apiEndpoint" class="endpoint muted">Save to generate endpoint</span>
-        </div>
-        <input id="editingApiId" type="hidden" />
-
-        <div class="form-grid two-up">
-          <div>
-            <label>API Name</label>
-            <input id="apiName" placeholder="Google result extractor" />
-          </div>
-          <div>
-            <label>Endpoint Slug</label>
-            <input id="apiSlug" placeholder="google-results" />
-          </div>
-        </div>
-        <div class="form-grid two-up">
-          <div>
-            <label>API Code</label>
-            <select id="apiScriptName"></select>
-          </div>
-          <div>
-            <label>Target Domain</label>
-            <input id="apiTargetDomain" placeholder="google.com" />
-          </div>
+      <section id="section-apis" class="workspace-section" aria-labelledby="apisHeading" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">HTTP interface builder</p><h2 id="apisHeading">Published APIs</h2><p class="section-copy">Turn code into rate-managed HTTP endpoints with declared inputs, proxy pools, and browser profiles.</p></div>
+          <div class="action-row"><button id="importLegacyBtn" class="ghost" type="button">Import existing code</button><button id="newApiBtn" class="primary-button" type="button">New API</button></div>
         </div>
 
-        <label>Input Fields</label>
-        <p class="muted">These fields become <code>input.&lt;name&gt;</code> in the API code. Other supplied fields remain available for compatibility.</p>
-        <div id="apiInputFields" class="input-schema-list"></div>
-        <button id="addApiInputBtn" class="ghost small" type="button">Add Input Field</button>
-
-        <div class="form-grid three-up">
-          <div>
-            <label>Concurrent Browsers</label>
-            <input id="apiMaxConcurrentRuns" type="number" min="1" value="1" />
+        <section class="panel api-platform-panel">
+          <div class="database-banner"><span class="run-status-dot"></span><p id="databaseStatus" class="muted">Checking PostgreSQL connection...</p></div>
+          <div class="api-platform-grid">
+            <section class="manager-column"><div class="subsection-title"><span>Published APIs</span><small>Endpoint catalog</small></div><div id="apisList" class="manager-list"></div></section>
+            <section class="manager-editor">
+              <div class="panel-head"><div><p class="eyebrow">API definition</p><h3 id="apiEditorTitle">Create API</h3></div><span id="apiEndpoint" class="endpoint muted">Save to generate endpoint</span></div>
+              <input id="editingApiId" type="hidden" />
+              <div class="form-grid two-up"><div><label>API Name</label><input id="apiName" placeholder="Google result extractor" /></div><div><label>Endpoint Slug</label><input id="apiSlug" placeholder="google-results" /></div></div>
+              <div class="form-grid two-up"><div><label>API Code</label><select id="apiScriptName"></select></div><div><label>Target Domain</label><input id="apiTargetDomain" placeholder="google.com" /></div></div>
+              <section class="subsection"><div class="panel-head"><div><p class="eyebrow">Request contract</p><h3>Input Fields</h3></div><button id="addApiInputBtn" class="ghost small" type="button">Add input field</button></div><p class="muted">Fields are passed to code as <code>input.&lt;name&gt;</code>. Supplied extra fields remain available for compatibility.</p><div id="apiInputFields" class="input-schema-list"></div></section>
+              <section class="subsection"><p class="eyebrow">Capacity and browser lifecycle</p><div class="form-grid three-up"><div><label>Concurrent Browsers</label><input id="apiMaxConcurrentRuns" type="number" min="1" value="1" /></div><div><label>Queued Requests</label><input id="apiMaxQueuedRequests" type="number" min="0" value="100" /></div><div><label>Profile Mode</label><select id="apiProfileMode"><option value="DISPOSABLE">Disposable</option><option value="STATIC">Static only</option><option value="AUTO">Static, then disposable</option></select></div></div><div class="form-grid two-up"><div><label>Disposable Profile Reuse (requests)</label><input id="apiDisposableMaxRequests" type="number" min="1" value="1" /></div><div><label>Disposable Profile Idle Retention (minutes)</label><input id="apiDisposableRetention" type="number" min="0" value="0" /></div></div></section>
+              <section class="subsection"><p class="eyebrow">Routing resources</p><label>Assigned Proxy Pools</label><p class="muted">Each proxy has this per-hour limit for this API and target domain. Two assigned pools add their capacity together.</p><div id="apiPoolAssignments" class="assignment-list"></div><label>Assigned Static Profiles</label><div id="apiProfileAssignments" class="assignment-list"></div></section>
+              <label class="checkbox"><input id="apiEnabled" type="checkbox" checked /><span>API enabled</span></label>
+              <div class="action-row manager-actions"><button id="saveApiBtn" class="primary-button" type="button">Save API</button><button id="deleteApiBtn" class="ghost danger" type="button">Delete API</button></div>
+              <pre id="apiEditorResult" class="logs manager-result" aria-live="polite"></pre>
+            </section>
           </div>
-          <div>
-            <label>Queued Requests</label>
-            <input id="apiMaxQueuedRequests" type="number" min="0" value="100" />
-          </div>
-          <div>
-            <label>Profile Mode</label>
-            <select id="apiProfileMode">
-              <option value="DISPOSABLE">Disposable</option>
-              <option value="STATIC">Static only</option>
-              <option value="AUTO">Static, then disposable</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-grid two-up">
-          <div>
-            <label>Disposable Profile Reuse (requests)</label>
-            <input id="apiDisposableMaxRequests" type="number" min="1" value="1" />
-          </div>
-          <div>
-            <label>Disposable Profile Idle Retention (minutes)</label>
-            <input id="apiDisposableRetention" type="number" min="0" value="0" />
-          </div>
-        </div>
-
-        <label>Assigned Proxy Pools</label>
-        <p class="muted">Each proxy has this per-hour limit for this API and target domain. Two assigned pools add their capacity together.</p>
-        <div id="apiPoolAssignments" class="assignment-list"></div>
-
-        <label>Assigned Static Profiles</label>
-        <div id="apiProfileAssignments" class="assignment-list"></div>
-
-        <label class="checkbox">
-          <input id="apiEnabled" type="checkbox" checked />
-          <span>API enabled</span>
-        </label>
-        <div class="row manager-actions">
-          <button id="saveApiBtn">Save API</button>
-          <button id="deleteApiBtn" class="ghost danger">Delete API</button>
-        </div>
-        <pre id="apiEditorResult" class="logs manager-result"></pre>
+        </section>
       </section>
-    </div>
-  </section>
 
-  <section class="management-grid">
-    <section class="panel">
-      <div class="panel-head"><h2>Proxy Pools</h2></div>
-      <div class="form-grid two-up">
-        <div>
-          <label>Pool Name</label>
-          <input id="proxyPoolName" placeholder="Residential pool" />
+      <section id="section-network" class="workspace-section" aria-labelledby="networkHeading" hidden>
+        <div class="section-heading"><div><p class="eyebrow">Traffic and identity</p><h2 id="networkHeading">Network &amp; Profiles</h2><p class="section-copy">Maintain proxy inventory and reusable browser identities independently from API definitions.</p></div></div>
+        <div class="management-grid">
+          <section class="panel"><div class="panel-head"><div><p class="eyebrow">Connection inventory</p><h3>Proxy Pools</h3></div></div><div class="form-grid two-up"><div><label>Pool Name</label><input id="proxyPoolName" placeholder="Residential pool" /></div><div><label>Pool Type</label><select id="proxyPoolType"><option value="STATIC">Static proxy list</option><option value="DYNAMIC">Dynamic proxy</option></select></div></div><label>Description</label><input id="proxyPoolDescription" placeholder="Optional" /><label>Proxies</label><textarea id="proxyPoolProxies" rows="5" placeholder="One per line: host:port, user:pass@host:port, http://..., or socks5://..."></textarea><p class="muted">Dynamic pools accept exactly one proxy. The same proxy is rate-limited as one rotating endpoint.</p><button id="createProxyPoolBtn" class="secondary-button" type="button">Create Proxy Pool</button><div id="proxyPoolsList" class="manager-list proxy-pools-list"></div></section>
+          <section class="panel"><div class="panel-head"><div><p class="eyebrow">Reusable identity</p><h3>Static Profiles</h3></div></div><div class="form-grid two-up"><div><label>Profile Name</label><input id="staticProfileName" placeholder="google-us-01" /></div><div><label>Fixed Proxy</label><select id="staticProfileProxy"></select></div></div><div class="form-grid two-up"><div><label>Browser Engine</label><select id="staticProfileEngine"><option value="chromium">Chromium</option><option value="chrome">Google Chrome</option><option value="camoufox">Camoufox</option></select></div><div><label>Fingerprint Preset</label><select id="staticProfilePreset"></select></div></div><button id="createStaticProfileBtn" class="secondary-button" type="button">Create Static Profile</button><p class="muted">A static profile is locked to one request at a time and always uses its fixed proxy.</p><div id="staticProfilesList" class="manager-list"></div></section>
         </div>
-        <div>
-          <label>Pool Type</label>
-          <select id="proxyPoolType">
-            <option value="STATIC">Static proxy list</option>
-            <option value="DYNAMIC">Dynamic proxy</option>
-          </select>
-        </div>
-      </div>
-      <label>Description</label>
-      <input id="proxyPoolDescription" placeholder="Optional" />
-      <label>Proxies</label>
-      <textarea id="proxyPoolProxies" rows="5" placeholder="One per line: host:port, user:pass@host:port, http://..., or socks5://..."></textarea>
-      <p class="muted">Dynamic pools accept exactly one proxy. The same proxy is rate-limited as one rotating endpoint.</p>
-      <button id="createProxyPoolBtn" class="ghost">Create Proxy Pool</button>
-      <div id="proxyPoolsList" class="manager-list proxy-pools-list"></div>
-    </section>
+      </section>
 
-    <section class="panel">
-      <div class="panel-head"><h2>Static Profiles</h2></div>
-      <div class="form-grid two-up">
-        <div>
-          <label>Profile Name</label>
-          <input id="staticProfileName" placeholder="google-us-01" />
-        </div>
-        <div>
-          <label>Fixed Proxy</label>
-          <select id="staticProfileProxy"></select>
-        </div>
-      </div>
-      <div class="form-grid two-up">
-        <div>
-          <label>Browser Engine</label>
-          <select id="staticProfileEngine">
-            <option value="chromium">Chromium</option>
-            <option value="chrome">Google Chrome</option>
-            <option value="camoufox">Camoufox</option>
-          </select>
-        </div>
-        <div>
-          <label>Fingerprint Preset</label>
-          <select id="staticProfilePreset"></select>
-        </div>
-      </div>
-      <button id="createStaticProfileBtn" class="ghost">Create Static Profile</button>
-      <p class="muted">A static profile is locked to one request at a time and always uses its fixed proxy.</p>
-      <div id="staticProfilesList" class="manager-list"></div>
-    </section>
-  </section>
+      <section id="section-settings" class="workspace-section" aria-labelledby="settingsHeading" hidden>
+        <div class="section-heading"><div><p class="eyebrow">Manual run defaults</p><h2 id="settingsHeading">Browser Settings</h2><p class="section-copy">These settings apply to manual code runs and legacy sync endpoints. Published APIs use their own assigned resources.</p></div></div>
+        <section class="settings-layout"><section class="panel settings-panel">
+          <div class="settings-group"><p class="eyebrow">Profile identity</p><div class="form-grid two-up"><div><label>Profile Name</label><input id="profileName" placeholder="default" /></div><div><label>Browser Engine</label><select id="browserEngine"><option value="chromium">Chromium (Current Anti-Detect Setup)</option><option value="chrome">Google Chrome (Regular)</option><option value="camoufox">Camoufox</option></select></div></div><button id="recreateProfileBtn" class="ghost" type="button">Recreate Profile</button></div>
+          <div class="settings-group"><p class="eyebrow">Fingerprint and connection</p><div class="form-grid two-up"><div><label>Standard Preset</label><div class="action-input"><select id="fingerprintPreset"></select><button id="applyPresetBtn" class="ghost small" type="button">Apply</button></div></div><div><label>Proxy</label><input id="proxy" placeholder="host:port or user:pass@host:port" /></div></div><label>User Agent</label><textarea id="userAgent" rows="3" placeholder="Optional"></textarea><div class="form-grid four-up"><div><label>Viewport W</label><input id="viewportWidth" type="number" min="320" /></div><div><label>Viewport H</label><input id="viewportHeight" type="number" min="320" /></div><div><label>Locale</label><input id="locale" placeholder="en-US" /></div><div><label>Timezone</label><input id="timezoneId" placeholder="America/Chicago" /></div></div><div class="action-row"><button id="testProxyBtn" class="ghost" type="button">Test Proxy</button><p id="proxyTestResult" class="muted" aria-live="polite"></p></div></div>
+          <div class="settings-group"><p class="eyebrow">Runtime capacity</p><div class="form-grid four-up"><div><label>Timeout (ms)</label><input id="timeoutMs" type="number" min="1000" step="1000" /></div><div><label>Rotate Profile Every</label><input id="rotateProfileEveryNRequests" type="number" min="0" step="1" placeholder="0 = disabled" /></div><div><label>Max Concurrent Runs</label><input id="maxConcurrentRunSlots" type="number" min="1" step="1" /></div><div><label>Max Queued Runs</label><input id="maxQueuedRunSlots" type="number" min="1" step="1" /></div></div><div class="form-grid three-up"><div><label>Safe Mode Min Free RAM (GB)</label><input id="safeModeMinFreeRamGb" type="number" min="1" step="1" /></div><div><label>Browser Job Timeout (ms)</label><input id="browserJobTimeoutMs" type="number" min="10000" step="1000" /></div><div><label>Camoufox Shared Idle Close (ms)</label><input id="camoufoxSharedIdleMs" type="number" min="5000" step="1000" /></div></div></div>
+          <div class="settings-group option-grid"><label class="checkbox"><input id="headless" type="checkbox" /><span>Headless mode</span></label><label class="checkbox"><input id="advancedFingerprintMode" type="checkbox" /><span>Advanced fingerprint mode</span></label><label class="checkbox"><input id="usePlaywrightWithFingerprints" type="checkbox" /><span>Use playwright-with-fingerprints engine</span></label><label class="checkbox"><input id="measureTrafficUsage" type="checkbox" /><span>Measure traffic usage per run</span></label><label class="checkbox"><input id="keepBrowserOpenOnFinish" type="checkbox" /><span>Keep browser open after run completes</span></label><label class="checkbox"><input id="rotateFingerprintWithProfile" type="checkbox" /><span>Rotate fingerprint with profile recreation</span></label><label class="checkbox"><input id="safeModeEnabled" type="checkbox" /><span>Safe mode (RAM guard + Camoufox shared browser)</span></label></div>
+          <div class="settings-footer"><button id="saveConfigBtn" class="primary-button" type="button">Save Browser Setup</button></div>
+        </section></section>
+      </section>
+    </main>
+  </div>
 
-  <section class="panel runs-panel">
-    <div class="panel-head">
-      <h2>Manual Code Runs</h2>
-      <div class="row">
-        <button id="clearRunsBtn" class="ghost danger">Clear</button>
-        <button id="refreshRunsBtn" class="ghost">Refresh</button>
-      </div>
-    </div>
-    <div id="runsList" class="runs-list"></div>
-    <h3>Run Logs</h3>
-    <pre id="runLogs" class="logs"></pre>
-  </section>
-
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
   <div id="apiDocsModal" class="docs-modal hidden" role="dialog" aria-modal="true" aria-labelledby="apiDocsTitle">
     <div class="docs-panel">
-      <div class="panel-head">
-        <h2 id="apiDocsTitle">API Documentation</h2>
-        <button id="closeApiDocsBtn" class="ghost">Close</button>
-      </div>
-
-      <p class="muted">Base URL: <code>http://localhost:4300</code> (or your configured port)</p>
-
-      <div class="docs-card">
-        <h3>Published API (GET or POST)</h3>
-        <p class="muted">Create an API in API Builder, then callers send its declared variables directly. API execution uses its assigned proxy pools and browser profiles.</p>
-        <pre id="doc-public-api" class="logs docs-code">curl -X POST "http://localhost:4300/v1/google-results" \
+      <div class="panel-head"><div><p class="eyebrow">Integration reference</p><h2 id="apiDocsTitle">API Documentation</h2></div><button id="closeApiDocsBtn" class="ghost" type="button">Close</button></div>
+      <p class="muted">Base URL: <code>http://localhost:4300</code> or your configured deployment origin.</p>
+      <div class="docs-card"><h3>Published API (GET or POST)</h3><p class="muted">Create an API in the APIs section, then callers send declared variables directly.</p><pre id="doc-public-api" class="logs docs-code">curl -X POST "http://localhost:4300/v1/google-results" \
   -H "Content-Type: application/json" \
   -d '{"search_request":"closest planet to earth"}'
 
-curl "http://localhost:4300/v1/google-results?search_request=closest%20planet%20to%20earth"</pre>
-        <button class="ghost small copy-btn" data-copy-target="doc-public-api">Copy</button>
-      </div>
-
-      <div class="docs-card">
-        <h3>Run Script Sync (GET)</h3>
-        <p class="muted">Runs one script and returns JSON result directly. Extra query params become <code>input</code> in script.</p>
-        <pre id="doc-run-sync" class="logs docs-code">curl "http://localhost:4300/api/run-sync?scriptName=ai_overview.js&amp;request=closest%20planet&amp;noProxy=true&amp;includeLogs=true"</pre>
-        <button class="ghost small copy-btn" data-copy-target="doc-run-sync">Copy</button>
-      </div>
-
-      <div class="docs-card">
-        <h3>Run Script Async (POST)</h3>
-        <p class="muted">Queues run and returns run id. Use this from agents/workers.</p>
-        <pre id="doc-run-async" class="logs docs-code">curl -X POST "http://localhost:4300/api/scripts/run" \
+curl "http://localhost:4300/v1/google-results?search_request=closest%20planet%20to%20earth"</pre><button class="ghost small copy-btn" data-copy-target="doc-public-api" type="button">Copy</button></div>
+      <div class="docs-card"><h3>Run Script Sync (GET)</h3><p class="muted">Runs one script and returns JSON directly. Extra query params become <code>input</code> in code.</p><pre id="doc-run-sync" class="logs docs-code">curl "http://localhost:4300/api/run-sync?scriptName=ai_overview.js&amp;request=closest%20planet&amp;noProxy=true&amp;includeLogs=true"</pre><button class="ghost small copy-btn" data-copy-target="doc-run-sync" type="button">Copy</button></div>
+      <div class="docs-card"><h3>Run Script Async (POST)</h3><p class="muted">Queues a run and returns its ID.</p><pre id="doc-run-async" class="logs docs-code">curl -X POST "http://localhost:4300/api/scripts/run" \
   -H "Content-Type: application/json" \
-  -d '{
-    "name": "ai_overview.js",
-    "input": {
-      "request": "closest planet to earth",
-      "noProxy": true
-    }
-  }'</pre>
-        <button class="ghost small copy-btn" data-copy-target="doc-run-async">Copy</button>
-      </div>
-
-      <div class="docs-card">
-        <h3>Poll Runs</h3>
-        <pre id="doc-runs-list" class="logs docs-code">curl "http://localhost:4300/api/runs"
-curl "http://localhost:4300/api/runs/&lt;runId&gt;"</pre>
-        <button class="ghost small copy-btn" data-copy-target="doc-runs-list">Copy</button>
-      </div>
-
-      <div class="docs-card">
-        <h3>Stop Active Run</h3>
-        <pre id="doc-run-stop" class="logs docs-code">curl -X POST "http://localhost:4300/api/runs/&lt;runId&gt;/stop"</pre>
-        <button class="ghost small copy-btn" data-copy-target="doc-run-stop">Copy</button>
-      </div>
-
-      <div class="docs-card">
-        <h3>Read / Save Browser Config</h3>
-        <pre id="doc-config-get" class="logs docs-code">curl "http://localhost:4300/api/config"</pre>
-        <button class="ghost small copy-btn" data-copy-target="doc-config-get">Copy</button>
-        <pre id="doc-config-post" class="logs docs-code">curl -X POST "http://localhost:4300/api/config" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "profileName": "default",
-    "browserEngine": "chrome",
-    "proxy": "user:pass@host:port",
-    "headless": false,
-    "timeoutMs": 120000,
-    "safeModeEnabled": true,
-    "safeModeMinFreeRamGb": 4,
-    "browserJobTimeoutMs": 180000,
-    "camoufoxSharedIdleMs": 30000,
-    "maxConcurrentRunSlots": 4,
-    "maxQueuedRunSlots": 200,
-    "rotateProfileEveryNRequests": 5,
-    "rotateFingerprintWithProfile": true
-  }'</pre>
-        <button class="ghost small copy-btn" data-copy-target="doc-config-post">Copy</button>
-      </div>
-
-      <div class="docs-card">
-        <h3>Script File CRUD</h3>
-        <pre id="doc-script-crud" class="logs docs-code">curl "http://localhost:4300/api/scripts"
-curl "http://localhost:4300/api/scripts/example.js"
-curl -X PUT "http://localhost:4300/api/scripts/new_script.js" \
-  -H "Content-Type: application/json" \
-  -d '{"content":"log(\"hello\")"}'
-curl -X DELETE "http://localhost:4300/api/scripts/new_script.js"</pre>
-        <button class="ghost small copy-btn" data-copy-target="doc-script-crud">Copy</button>
-      </div>
-
-      <div class="docs-card">
-        <h3>Proxy + Profile Utilities</h3>
-        <pre id="doc-utils" class="logs docs-code">curl -X POST "http://localhost:4300/api/config/proxy/test" \
-  -H "Content-Type: application/json" \
-  -d '{"proxy":"user:pass@host:port"}'
-
-curl -X POST "http://localhost:4300/api/profile/recreate" \
-  -H "Content-Type: application/json" \
-  -d '{"profileName":"default"}'</pre>
-        <button class="ghost small copy-btn" data-copy-target="doc-utils">Copy</button>
-      </div>
-
-      <div class="docs-card">
-        <h3>Agent Input Contract</h3>
-        <pre id="doc-agent-contract" class="logs docs-code">Execution context inside script:
+  -d '{"name":"ai_overview.js","input":{"request":"closest planet to earth","noProxy":true}}'</pre><button class="ghost small copy-btn" data-copy-target="doc-run-async" type="button">Copy</button></div>
+      <div class="docs-card"><h3>Poll or Stop Runs</h3><pre id="doc-runs-list" class="logs docs-code">curl "http://localhost:4300/api/runs"
+curl "http://localhost:4300/api/runs/&lt;runId&gt;"
+curl -X POST "http://localhost:4300/api/runs/&lt;runId&gt;/stop"</pre><button class="ghost small copy-btn" data-copy-target="doc-runs-list" type="button">Copy</button></div>
+      <div class="docs-card"><h3>Agent Input Contract</h3><pre id="doc-agent-contract" class="logs docs-code">Execution context inside code:
 - page, context, browser, playwright
 - log(...args), sleep(ms)
 - config (resolved run config)
 - input (variables from UI/API)
 - setResult(value) optional explicit result
 
-Recommended script return JSON:
-{
-  "ok": true,
-  "data": "...",
-  "error": null
-}</pre>
-        <button class="ghost small copy-btn" data-copy-target="doc-agent-contract">Copy</button>
-      </div>
+Recommended code return JSON:
+{ "ok": true, "data": "...", "error": null }</pre><button class="ghost small copy-btn" data-copy-target="doc-agent-contract" type="button">Copy</button></div>
     </div>
   </div>
-
   <script src="main.js"></script>
 </body>
 </html>

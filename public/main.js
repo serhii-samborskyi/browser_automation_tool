@@ -21,6 +21,13 @@ const metricGpu = document.getElementById("metricGpu");
 const metricGpuSub = document.getElementById("metricGpuSub");
 const metricDisk = document.getElementById("metricDisk");
 const metricDiskSub = document.getElementById("metricDiskSub");
+const appConnectionStatus = document.getElementById("appConnectionStatus");
+const runStatusCard = document.getElementById("runStatusCard");
+const runStatusTitle = document.getElementById("runStatusTitle");
+const runStatusDetail = document.getElementById("runStatusDetail");
+const toastRegion = document.getElementById("toastRegion");
+const sectionTabs = [...document.querySelectorAll(".section-tab")];
+const workspaceSections = [...document.querySelectorAll(".workspace-section")];
 
 const profileName = document.getElementById("profileName");
 const browserEngine = document.getElementById("browserEngine");
@@ -105,6 +112,82 @@ let availableScriptNames = [];
 let platformApis = [];
 let platformPools = [];
 let platformProfiles = [];
+
+function errorMessage(err) {
+  const raw = err?.message || String(err || "Unknown error");
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed.error || raw;
+  } catch {
+    return raw;
+  }
+}
+
+function setButtonLoading(button, loading, label = null) {
+  if (!button) return;
+  const labelNode = button.querySelector(".button-label");
+  if (!button.dataset.defaultLabel) {
+    button.dataset.defaultLabel = labelNode?.textContent || button.textContent.trim();
+  }
+  button.disabled = loading;
+  button.classList.toggle("is-loading", loading);
+  if (labelNode) {
+    labelNode.textContent = loading ? label || "Working..." : button.dataset.defaultLabel;
+  } else if (loading && label) {
+    button.textContent = label;
+  } else if (!loading) {
+    button.textContent = button.dataset.defaultLabel;
+  }
+}
+
+function setRunStatus(state, title, detail) {
+  if (!runStatusCard) return;
+  runStatusCard.className = `run-status-card ${state || "idle"}`;
+  runStatusTitle.textContent = title;
+  runStatusDetail.textContent = detail;
+}
+
+function showToast(message, kind = "success") {
+  if (!toastRegion || !message) return;
+  const toast = document.createElement("div");
+  toast.className = `toast ${kind === "success" ? "" : kind}`.trim();
+  toast.textContent = String(message);
+  toastRegion.appendChild(toast);
+  window.setTimeout(() => toast.remove(), kind === "error" ? 7000 : 4200);
+}
+
+function setActiveSection(sectionName) {
+  const target = String(sectionName || "studio");
+  sectionTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.section === target));
+  workspaceSections.forEach((section) => {
+    const active = section.id === `section-${target}`;
+    section.hidden = !active;
+    section.classList.toggle("active", active);
+  });
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function updateConnection(online, detail) {
+  if (!appConnectionStatus) return;
+  appConnectionStatus.className = `connection-status ${online ? "online" : "offline"}`;
+  appConnectionStatus.lastChild.textContent = ` ${detail}`;
+}
+
+function updateRunStatusFromRun(run) {
+  if (!run || run.id !== selectedRunId) return;
+  const script = run.scriptName || "automation";
+  if (run.status === "queued") {
+    setRunStatus("queued", "Run queued", `${script} is waiting for an available browser slot.`);
+  } else if (run.status === "running") {
+    setRunStatus("running", "Run in progress", `${script} is currently executing in a browser.`);
+  } else if (run.status === "done") {
+    setRunStatus("success", "Run completed", `${script} completed successfully. Inspect logs or start another run.`);
+  } else if (run.status === "failed") {
+    setRunStatus("error", "Run failed", `${script} failed. Inspect execution logs for the full error.`);
+  } else if (run.status === "stopped") {
+    setRunStatus("idle", "Run stopped", `${script} was stopped before completion.`);
+  }
+}
 
 function normalizeBrowserEngine(value) {
   const raw = String(value || "").trim().toLowerCase();
@@ -208,6 +291,7 @@ async function loadConfig() {
 async function loadMetrics() {
   try {
     const m = await fetchJson("/api/metrics");
+    updateConnection(true, "Server connected");
     metricProcesses.textContent = String(m?.processes?.active ?? m?.runs?.activeRunSlots ?? 0);
     metricQueue.textContent = `queued: ${String(m?.processes?.queued ?? m?.runs?.queuedRunSlots ?? 0)}`;
 
@@ -233,6 +317,7 @@ async function loadMetrics() {
       metricDiskSub.textContent = "Disk stats unavailable";
     }
   } catch {
+    updateConnection(false, "Server unavailable");
     metricProcesses.textContent = "-";
     metricQueue.textContent = "queued: -";
     metricCpu.textContent = "-";
@@ -445,17 +530,36 @@ async function deleteScript() {
 }
 
 async function runScript() {
-  if (!activeScript) return;
-  await saveScript();
-  const input = collectSyncInputs();
+  if (!activeScript) {
+    const message = "Select or create API code before running it.";
+    setRunStatus("error", "No code selected", message);
+    showToast(message, "error");
+    return;
+  }
 
-  const result = await fetchJson("/api/scripts/run", {
-    method: "POST",
-    body: JSON.stringify({ name: activeScript, input })
-  });
+  setButtonLoading(runScriptBtn, true, "Queueing...");
+  setRunStatus("queued", "Saving and queueing", `${activeScript} is being saved before its browser run starts.`);
+  try {
+    await saveScript();
+    const input = collectSyncInputs();
+    const result = await fetchJson("/api/scripts/run", {
+      method: "POST",
+      body: JSON.stringify({ name: activeScript, input })
+    });
 
-  selectedRunId = result.run?.id || null;
-  await loadRuns();
+    selectedRunId = result.run?.id || null;
+    if (!selectedRunId) throw new Error("The server did not return a run ID.");
+    updateRunStatusFromRun(result.run);
+    showToast(`${activeScript} queued successfully.`);
+    await loadRuns();
+  } catch (err) {
+    const message = errorMessage(err);
+    runLogs.textContent = `ERROR:\n${message}`;
+    setRunStatus("error", "Could not start run", message);
+    showToast(`Run failed to start: ${message}`, "error");
+  } finally {
+    setButtonLoading(runScriptBtn, false);
+  }
 }
 
 function addSyncInputRow(key = "", value = "") {
@@ -483,30 +587,46 @@ function collectSyncInputs() {
 
 async function runSyncTest() {
   if (!activeScript) {
-    syncResult.textContent = "Select a script first.";
+    const message = "Select or create API code before running a sync test.";
+    syncResult.textContent = message;
+    setRunStatus("error", "No code selected", message);
+    showToast(message, "error");
     return;
   }
-  await saveScript();
 
-  const params = new URLSearchParams();
-  params.set("scriptName", activeScript);
-  const input = collectSyncInputs();
-  Object.entries(input).forEach(([k, v]) => params.set(k, v));
-  if (syncIncludeLogs.checked) params.set("includeLogs", "true");
-
-  const url = `/api/run-sync?${params.toString()}`;
-  syncResult.textContent = "Running...";
+  setButtonLoading(runSyncBtn, true, "Running...");
+  setRunStatus("running", "Sync test in progress", `${activeScript} is executing and will return JSON directly.`);
+  syncResult.textContent = "Starting sync test...";
   try {
+    await saveScript();
+    const params = new URLSearchParams();
+    params.set("scriptName", activeScript);
+    const input = collectSyncInputs();
+    Object.entries(input).forEach(([k, v]) => params.set(k, v));
+    if (syncIncludeLogs.checked) params.set("includeLogs", "true");
+
+    const url = `/api/run-sync?${params.toString()}`;
     const response = await fetch(url);
     const text = await response.text();
+    let parsed = null;
     try {
-      const parsed = JSON.parse(text);
+      parsed = JSON.parse(text);
       syncResult.textContent = JSON.stringify(parsed, null, 2);
     } catch {
       syncResult.textContent = text;
     }
+    if (!response.ok || parsed?.ok === false) {
+      throw new Error(parsed?.error || text || `Request failed: ${response.status}`);
+    }
+    setRunStatus("success", "Sync test completed", `${activeScript} returned a response. See the JSON result below.`);
+    showToast(`${activeScript} sync test completed.`);
   } catch (err) {
-    syncResult.textContent = err?.stack || err?.message || String(err);
+    const message = errorMessage(err);
+    syncResult.textContent = `ERROR:\n${message}`;
+    setRunStatus("error", "Sync test failed", message);
+    showToast(`Sync test failed: ${message}`, "error");
+  } finally {
+    setButtonLoading(runSyncBtn, false);
   }
 }
 
@@ -540,6 +660,7 @@ async function loadRuns() {
   }
 
   if (selectedRunId) {
+    updateRunStatusFromRun(runs.find((run) => run.id === selectedRunId));
     await loadRunLogs(selectedRunId);
   } else {
     runLogs.textContent = "";
@@ -1069,6 +1190,10 @@ staticProfilesList.addEventListener("click", async (event) => {
   }
 });
 
+sectionTabs.forEach((tab) => {
+  tab.addEventListener("click", () => setActiveSection(tab.dataset.section));
+});
+
 newScriptBtn.addEventListener("click", createScript);
 downloadScriptBtn.addEventListener("click", downloadScript);
 uploadScriptBtn.addEventListener("click", triggerUploadScript);
@@ -1077,10 +1202,31 @@ uploadScriptInput.addEventListener("change", () => {
     runLogs.textContent = err?.stack || err?.message || String(err);
   });
 });
-saveScriptBtn.addEventListener("click", saveScript);
+saveScriptBtn.addEventListener("click", async () => {
+  try {
+    setButtonLoading(saveScriptBtn, true, "Saving...");
+    await saveScript();
+    if (activeScript) showToast(`${activeScript} saved.`);
+  } catch (err) {
+    showToast(`Could not save code: ${errorMessage(err)}`, "error");
+  } finally {
+    setButtonLoading(saveScriptBtn, false);
+  }
+});
 deleteScriptBtn.addEventListener("click", deleteScript);
 runScriptBtn.addEventListener("click", runScript);
-saveConfigBtn.addEventListener("click", saveConfig);
+saveConfigBtn.addEventListener("click", async () => {
+  try {
+    setButtonLoading(saveConfigBtn, true, "Saving...");
+    await saveConfig();
+    showToast("Browser setup saved.");
+  } catch (err) {
+    const message = errorMessage(err);
+    showToast(`Could not save browser setup: ${message}`, "error");
+  } finally {
+    setButtonLoading(saveConfigBtn, false);
+  }
+});
 testProxyBtn.addEventListener("click", testProxy);
 refreshRunsBtn.addEventListener("click", loadRuns);
 clearRunsBtn.addEventListener("click", clearRuns);
@@ -1124,10 +1270,17 @@ async function init() {
   addSyncInputRow("var", "");
   addSyncInputRow("var2", "");
   await loadApiPlatform({ keepEditor: false });
-  setInterval(loadRuns, 2500);
+  setInterval(() => {
+    loadRuns().catch((err) => {
+      if (selectedRunId) runLogs.textContent = `Could not refresh run status:\n${errorMessage(err)}`;
+    });
+  }, 2500);
   setInterval(loadMetrics, 2500);
 }
 
 init().catch((err) => {
-  runLogs.textContent = err?.stack || err?.message || String(err);
+  const message = errorMessage(err);
+  runLogs.textContent = `Unable to initialize the control panel:\n${message}`;
+  setRunStatus("error", "Control panel unavailable", message);
+  showToast(`Unable to initialize: ${message}`, "error");
 });
