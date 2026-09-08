@@ -14,6 +14,31 @@ import {
   recreateProfile,
   STANDARD_FINGERPRINT_PRESETS
 } from "./browser_setup.js";
+import { DatabaseUnavailableError, disconnectDatabase, getDatabaseStatus } from "./database.js";
+import {
+  ApiPlatformError,
+  addProxiesToPool,
+  createApi,
+  createProfile,
+  createProxyPool,
+  deleteApi,
+  deleteProfile,
+  deleteProxy,
+  deleteProxyPool,
+  getApi,
+  importLegacyScripts,
+  invokePublicApi,
+  listApiRuns,
+  listApis,
+  listProfiles,
+  listProxyPools,
+  setApiProfiles,
+  setApiProxyPools,
+  updateApi,
+  updateProfile,
+  updateProxy,
+  updateProxyPool
+} from "./api_platform.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -437,6 +462,7 @@ async function handleProcessShutdown(reason, err = null) {
     console.log(`[${reason}] cleaning up active browser jobs`);
   }
   await cleanupAllActiveBrowserJobs(reason);
+  await disconnectDatabase();
 }
 
 process.on("SIGINT", () => {
@@ -873,7 +899,8 @@ async function runBrowserJob({
   ephemeral,
   input = {},
   logFn = () => {},
-  stopRequested = () => false
+  stopRequested = () => false,
+  prepareSession = null
 }) {
   let session = null;
   let slot = null;
@@ -898,10 +925,23 @@ async function runBrowserJob({
       logFn(`[queue] waited ${slot.waitedMs}ms for available run slot`);
     }
 
+    // API Builder allocates a profile/proxy only after a global browser slot is
+    // reserved. This prevents queued work from holding a profile lock or proxy
+    // rate capacity while another job is still using the browser resources.
+    if (typeof prepareSession === "function") {
+      const prepared = await prepareSession({ config: { ...runConfig }, ephemeral: Boolean(effectiveEphemeral) });
+      if (prepared?.config && typeof prepared.config === "object") {
+        runConfig = { ...runConfig, ...prepared.config };
+      }
+      if (typeof prepared?.ephemeral === "boolean") {
+        effectiveEphemeral = prepared.ephemeral;
+      }
+    }
+
     const rotation = await maybeRotateProfileAndFingerprint(runConfig, (...args) => logFn(...args));
     runConfig = rotation?.config || runConfig;
 
-    const launched = await launchSessionWithFallback(runConfig, ephemeral, (...args) => logFn(...args));
+    const launched = await launchSessionWithFallback(runConfig, effectiveEphemeral, (...args) => logFn(...args));
     session = launched.session;
     effectiveEphemeral = launched.effectiveEphemeral;
     fallbackEphemeral = launched.fallbackEphemeral;
@@ -989,7 +1029,7 @@ async function runBrowserJob({
   }
 }
 
-async function executeScriptSync({ scriptName, code, config, ephemeral, input = {} }) {
+async function executeScriptSync({ scriptName, code, config, ephemeral, input = {}, prepareSession = null }) {
   const started = Date.now();
   const logs = [];
 
@@ -1012,7 +1052,8 @@ async function executeScriptSync({ scriptName, code, config, ephemeral, input = 
     ephemeral,
     input,
     logFn: (...args) => pushLog(...args),
-    stopRequested: () => false
+    stopRequested: () => false,
+    prepareSession
   });
 
   const out = {
@@ -1125,8 +1166,61 @@ syncRunSlotLimitsFromConfig(readConfig());
 app.use(bodyParser.json({ limit: "4mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
+function sendPlatformError(res, err) {
+  if (err instanceof DatabaseUnavailableError) {
+    return res.status(503).json({ ok: false, code: err.code, error: err.message });
+  }
+  if (err instanceof ApiPlatformError) {
+    if (err.retryAfterSeconds) res.set("Retry-After", String(Math.max(1, Math.ceil(err.retryAfterSeconds))));
+    return res.status(err.status).json({
+      ok: false,
+      code: err.code,
+      error: err.message,
+      retryAfterSeconds: err.retryAfterSeconds || undefined
+    });
+  }
+  if (err?.code === "P2002") {
+    return res.status(409).json({ ok: false, code: "DUPLICATE_RECORD", error: "A record with that value already exists." });
+  }
+  if (err?.code === "P2021") {
+    return res.status(503).json({
+      ok: false,
+      code: "DATABASE_MIGRATION_REQUIRED",
+      error: "PostgreSQL is connected but Prisma migrations have not been applied. Run npm run db:migrate."
+    });
+  }
+  console.error("[api-platform]", err);
+  return res.status(500).json({ ok: false, error: err?.message || "API platform request failed" });
+}
+
+function publicApiInput(req) {
+  if (req.method === "GET") return { ...(req.query || {}) };
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
+  if (body.input && typeof body.input === "object" && !Array.isArray(body.input)) return { ...body.input };
+  return { ...body };
+}
+
+async function handlePublicApiRequest(req, res) {
+  try {
+    const output = await invokePublicApi({
+      slug: req.params.slug,
+      input: publicApiInput(req),
+      executeScript: executeScriptSync,
+      getBaseConfig: readConfig,
+      scriptsDir: SCRIPTS_DIR
+    });
+    res.json(output);
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+}
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, now: new Date().toISOString(), ...getRunSlotStats() });
+});
+
+app.get("/api/database/status", async (_req, res) => {
+  res.json(await getDatabaseStatus());
 });
 
 app.get("/api/metrics", async (_req, res) => {
@@ -1223,6 +1317,168 @@ app.post("/api/config/proxy/test", async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err?.message || "Proxy test failed" });
+  }
+});
+
+// API Builder management. API scripts remain files; PostgreSQL stores the API
+// contract, routing, proxy scheduling, profile assignment, and run history.
+app.get("/api/apis", async (_req, res) => {
+  try {
+    res.json(await listApis());
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.post("/api/apis", async (req, res) => {
+  try {
+    res.status(201).json(await createApi(req.body || {}));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.get("/api/apis/:id/runs", async (req, res) => {
+  try {
+    res.json(await listApiRuns(req.params.id, req.query?.take));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.put("/api/apis/:id/proxy-pools", async (req, res) => {
+  try {
+    res.json(await setApiProxyPools(req.params.id, req.body?.assignments));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.put("/api/apis/:id/profiles", async (req, res) => {
+  try {
+    res.json(await setApiProfiles(req.params.id, req.body?.profileIds));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.get("/api/apis/:id", async (req, res) => {
+  try {
+    res.json(await getApi(req.params.id));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.put("/api/apis/:id", async (req, res) => {
+  try {
+    res.json(await updateApi(req.params.id, req.body || {}));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.delete("/api/apis/:id", async (req, res) => {
+  try {
+    res.json(await deleteApi(req.params.id));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.get("/api/proxy-pools", async (_req, res) => {
+  try {
+    res.json(await listProxyPools());
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.post("/api/proxy-pools", async (req, res) => {
+  try {
+    res.status(201).json(await createProxyPool(req.body || {}));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.post("/api/proxy-pools/:id/proxies", async (req, res) => {
+  try {
+    res.status(201).json(await addProxiesToPool(req.params.id, req.body || {}));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.put("/api/proxy-pools/:id", async (req, res) => {
+  try {
+    res.json(await updateProxyPool(req.params.id, req.body || {}));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.delete("/api/proxy-pools/:id", async (req, res) => {
+  try {
+    res.json(await deleteProxyPool(req.params.id));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.put("/api/proxies/:id", async (req, res) => {
+  try {
+    res.json(await updateProxy(req.params.id, req.body || {}));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.delete("/api/proxies/:id", async (req, res) => {
+  try {
+    res.json(await deleteProxy(req.params.id));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.get("/api/profiles", async (_req, res) => {
+  try {
+    res.json(await listProfiles());
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.post("/api/profiles", async (req, res) => {
+  try {
+    res.status(201).json(await createProfile(req.body || {}));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.put("/api/profiles/:id", async (req, res) => {
+  try {
+    res.json(await updateProfile(req.params.id, req.body || {}));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.delete("/api/profiles/:id", async (req, res) => {
+  try {
+    res.json(await deleteProfile(req.params.id));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+});
+
+app.post("/api/database/import-legacy", async (_req, res) => {
+  try {
+    res.json(await importLegacyScripts({ scriptsDir: SCRIPTS_DIR, config: readConfig() }));
+  } catch (err) {
+    sendPlatformError(res, err);
   }
 });
 
@@ -1456,6 +1712,11 @@ app.post("/api/runs/:id/stop", async (req, res) => {
   await run.stop();
   res.json({ ok: true });
 });
+
+// Public API endpoints generated in API Builder. GET query parameters and POST
+// JSON fields are validated against the API's declared input schema.
+app.get("/v1/:slug", handlePublicApiRequest);
+app.post("/v1/:slug", handlePublicApiRequest);
 
 app.listen(port, host, () => {
   console.log(`Playwright automation runner listening on http://${host}:${port}`);

@@ -1,0 +1,191 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProxyPoolType {
+  STATIC
+  DYNAMIC
+}
+
+enum BrowserProfileType {
+  STATIC
+  DISPOSABLE
+}
+
+enum ApiProfileMode {
+  DISPOSABLE
+  STATIC
+  AUTO
+}
+
+enum ApiRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum ProxyOutcome {
+  SUCCESS
+  ERROR
+  RATE_LIMITED
+}
+
+model Api {
+  id                                String           @id @default(cuid())
+  name                              String
+  slug                              String           @unique
+  scriptName                        String
+  targetDomain                      String
+  inputSchema                       Json             @default("[]")
+  enabled                           Boolean          @default(true)
+  maxConcurrentRuns                 Int              @default(1)
+  maxQueuedRequests                 Int              @default(100)
+  profileMode                       ApiProfileMode   @default(DISPOSABLE)
+  disposableProfileMaxRequests      Int              @default(1)
+  disposableProfileRetentionMinutes Int              @default(0)
+  createdAt                         DateTime         @default(now())
+  updatedAt                         DateTime         @updatedAt
+  proxyPools                        ApiProxyPool[]
+  profileLinks                      ApiProfileLink[]
+  proxyUsages                       ProxyUsage[]
+  disposableProfiles                BrowserProfile[] @relation("DisposableProfileApi")
+  runs                              ApiRun[]
+}
+
+model ProxyPool {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  type        ProxyPoolType
+  description String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  proxies     Proxy[]
+  apiLinks    ApiProxyPool[]
+}
+
+model Proxy {
+  id        String           @id @default(cuid())
+  poolId    String
+  value     String
+  label     String?
+  protocol  String?
+  enabled   Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  pool      ProxyPool        @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  usages    ProxyUsage[]
+  profiles  BrowserProfile[]
+  runs      ApiRun[]
+
+  @@unique([poolId, value])
+  @@index([poolId, enabled])
+}
+
+model ApiProxyPool {
+  apiId                  String
+  poolId                 String
+  enabled                Boolean   @default(true)
+  requestsPerHour        Int       @default(60)
+  cooldownMinutes        Int       @default(30)
+  maxConsecutiveFailures Int       @default(2)
+  api                    Api       @relation(fields: [apiId], references: [id], onDelete: Cascade)
+  pool                   ProxyPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@id([apiId, poolId])
+  @@index([poolId, enabled])
+}
+
+model ProxyUsage {
+  id                  String        @id @default(cuid())
+  apiId               String
+  proxyId             String
+  targetDomain        String
+  windowStartedAt     DateTime      @default(now())
+  requestCount        Int           @default(0)
+  totalRequestCount   Int           @default(0)
+  totalFailureCount   Int           @default(0)
+  consecutiveFailures Int           @default(0)
+  cooldownUntil       DateTime?
+  lastUsedAt          DateTime?
+  lastOutcome         ProxyOutcome?
+  lastError           String?
+  lastStatusCode      Int?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  api                 Api           @relation(fields: [apiId], references: [id], onDelete: Cascade)
+  proxy               Proxy         @relation(fields: [proxyId], references: [id], onDelete: Cascade)
+
+  @@unique([apiId, proxyId, targetDomain])
+  @@index([apiId, targetDomain, cooldownUntil])
+  @@index([proxyId, lastUsedAt])
+}
+
+model BrowserProfile {
+  id                  String             @id @default(cuid())
+  name                String             @unique
+  profileDir          String             @unique
+  type                BrowserProfileType
+  apiId               String?
+  proxyId             String?
+  browserEngine       String             @default("chromium")
+  userAgent           String?
+  viewportWidth       Int                @default(1440)
+  viewportHeight      Int                @default(900)
+  locale              String             @default("en-US")
+  timezoneId          String             @default("America/Chicago")
+  fingerprintPresetId String?
+  enabled             Boolean            @default(true)
+  locked              Boolean            @default(false)
+  lockedAt            DateTime?
+  requestCount        Int                @default(0)
+  maxRequests         Int                @default(1)
+  expiresAt           DateTime?
+  lastUsedAt          DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  api                 Api?               @relation("DisposableProfileApi", fields: [apiId], references: [id], onDelete: Cascade)
+  proxy               Proxy?             @relation(fields: [proxyId], references: [id], onDelete: SetNull)
+  apiLinks            ApiProfileLink[]
+  runs                ApiRun[]
+
+  @@index([type, enabled, locked])
+  @@index([apiId, type, expiresAt])
+}
+
+model ApiProfileLink {
+  apiId     String
+  profileId String
+  api       Api            @relation(fields: [apiId], references: [id], onDelete: Cascade)
+  profile   BrowserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@id([apiId, profileId])
+}
+
+model ApiRun {
+  id         String          @id @default(cuid())
+  apiId      String
+  proxyId    String?
+  profileId  String?
+  status     ApiRunStatus    @default(QUEUED)
+  input      Json
+  result     Json?
+  error      String?
+  traffic    Json?
+  queuedAt   DateTime        @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  durationMs Int?
+  createdAt  DateTime        @default(now())
+  api        Api             @relation(fields: [apiId], references: [id], onDelete: Cascade)
+  proxy      Proxy?          @relation(fields: [proxyId], references: [id], onDelete: SetNull)
+  profile    BrowserProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  @@index([apiId, queuedAt])
+  @@index([status, queuedAt])
+}

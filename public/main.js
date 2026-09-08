@@ -61,9 +61,50 @@ const clearRunsBtn = document.getElementById("clearRunsBtn");
 const recreateProfileBtn = document.getElementById("recreateProfileBtn");
 const applyPresetBtn = document.getElementById("applyPresetBtn");
 
+const databaseStatus = document.getElementById("databaseStatus");
+const importLegacyBtn = document.getElementById("importLegacyBtn");
+const newApiBtn = document.getElementById("newApiBtn");
+const apisList = document.getElementById("apisList");
+const apiEditorTitle = document.getElementById("apiEditorTitle");
+const apiEndpoint = document.getElementById("apiEndpoint");
+const editingApiId = document.getElementById("editingApiId");
+const apiName = document.getElementById("apiName");
+const apiSlug = document.getElementById("apiSlug");
+const apiScriptName = document.getElementById("apiScriptName");
+const apiTargetDomain = document.getElementById("apiTargetDomain");
+const apiInputFields = document.getElementById("apiInputFields");
+const addApiInputBtn = document.getElementById("addApiInputBtn");
+const apiMaxConcurrentRuns = document.getElementById("apiMaxConcurrentRuns");
+const apiMaxQueuedRequests = document.getElementById("apiMaxQueuedRequests");
+const apiProfileMode = document.getElementById("apiProfileMode");
+const apiDisposableMaxRequests = document.getElementById("apiDisposableMaxRequests");
+const apiDisposableRetention = document.getElementById("apiDisposableRetention");
+const apiPoolAssignments = document.getElementById("apiPoolAssignments");
+const apiProfileAssignments = document.getElementById("apiProfileAssignments");
+const apiEnabled = document.getElementById("apiEnabled");
+const saveApiBtn = document.getElementById("saveApiBtn");
+const deleteApiBtn = document.getElementById("deleteApiBtn");
+const apiEditorResult = document.getElementById("apiEditorResult");
+const proxyPoolName = document.getElementById("proxyPoolName");
+const proxyPoolType = document.getElementById("proxyPoolType");
+const proxyPoolDescription = document.getElementById("proxyPoolDescription");
+const proxyPoolProxies = document.getElementById("proxyPoolProxies");
+const createProxyPoolBtn = document.getElementById("createProxyPoolBtn");
+const proxyPoolsList = document.getElementById("proxyPoolsList");
+const staticProfileName = document.getElementById("staticProfileName");
+const staticProfileProxy = document.getElementById("staticProfileProxy");
+const staticProfileEngine = document.getElementById("staticProfileEngine");
+const staticProfilePreset = document.getElementById("staticProfilePreset");
+const createStaticProfileBtn = document.getElementById("createStaticProfileBtn");
+const staticProfilesList = document.getElementById("staticProfilesList");
+
 let activeScript = null;
 let selectedRunId = null;
 let presets = [];
+let availableScriptNames = [];
+let platformApis = [];
+let platformPools = [];
+let platformProfiles = [];
 
 function normalizeBrowserEngine(value) {
   const raw = String(value || "").trim().toLowerCase();
@@ -291,6 +332,8 @@ async function testProxy() {
 
 async function loadScripts() {
   const scripts = await fetchJson("/api/scripts");
+  availableScriptNames = scripts;
+  renderApiScriptOptions(apiScriptName.value || activeScript);
   scriptsList.innerHTML = scripts
     .map((name) => {
       const active = name === activeScript ? " active" : "";
@@ -304,7 +347,7 @@ async function loadScripts() {
 
   if (!scripts.length) {
     activeScript = null;
-    currentScriptTitle.textContent = "No script selected";
+    currentScriptTitle.textContent = "No API code selected";
     scriptEditor.value = "";
   }
 }
@@ -529,6 +572,411 @@ async function stopRun(runId) {
   await loadRuns();
 }
 
+function platformErrorMessage(err) {
+  const raw = err?.message || String(err);
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed.error || raw;
+  } catch {
+    return raw;
+  }
+}
+
+function apiOrigin() {
+  return window.location.origin || "http://localhost:4300";
+}
+
+function renderApiScriptOptions(selected = "") {
+  const selectedName = selected || activeScript || availableScriptNames[0] || "";
+  apiScriptName.innerHTML = availableScriptNames.length
+    ? availableScriptNames
+        .map(
+          (name) =>
+            `<option value="${escapeHtml(name)}"${name === selectedName ? " selected" : ""}>${escapeHtml(name)}</option>`
+        )
+        .join("")
+    : `<option value="">No API code available</option>`;
+}
+
+function addApiInputField(field = {}) {
+  const row = document.createElement("div");
+  row.className = "input-schema-row";
+  const defaultValue =
+    field.default === null || field.default === undefined
+      ? ""
+      : typeof field.default === "object"
+      ? JSON.stringify(field.default)
+      : String(field.default);
+  row.innerHTML = `
+    <input class="api-input-name" placeholder="name" value="${escapeHtml(field.name || "")}" />
+    <select class="api-input-type">
+      ${["string", "number", "boolean", "json"]
+        .map((type) => `<option value="${type}"${field.type === type ? " selected" : ""}>${type}</option>`)
+        .join("")}
+    </select>
+    <label class="checkbox"><input class="api-input-required" type="checkbox"${field.required ? " checked" : ""} /><span>Required</span></label>
+    <input class="api-input-default" placeholder="default" value="${escapeHtml(defaultValue)}" />
+    <input class="api-input-description" placeholder="description" value="${escapeHtml(field.description || "")}" />
+    <button class="ghost danger small api-input-remove" type="button">Remove</button>
+  `;
+  apiInputFields.appendChild(row);
+}
+
+function collectApiInputSchema() {
+  return [...apiInputFields.querySelectorAll(".input-schema-row")]
+    .map((row) => {
+      const name = row.querySelector(".api-input-name")?.value?.trim();
+      if (!name) return null;
+      const type = row.querySelector(".api-input-type")?.value || "string";
+      const defaultText = row.querySelector(".api-input-default")?.value ?? "";
+      let defaultValue = defaultText === "" ? null : defaultText;
+      if (type === "json" && defaultText) {
+        try {
+          defaultValue = JSON.parse(defaultText);
+        } catch {
+          throw new Error(`Default for ${name} must be valid JSON.`);
+        }
+      }
+      return {
+        name,
+        type,
+        required: Boolean(row.querySelector(".api-input-required")?.checked),
+        default: defaultValue,
+        description: row.querySelector(".api-input-description")?.value?.trim() || ""
+      };
+    })
+    .filter(Boolean);
+}
+
+function renderApiAssignments(api = null) {
+  const selectedPools = new Map((api?.proxyPools || []).map((entry) => [entry.poolId, entry]));
+  apiPoolAssignments.innerHTML = platformPools.length
+    ? platformPools
+        .map((pool) => {
+          const assignment = selectedPools.get(pool.id);
+          return `
+            <div class="assignment-row" data-pool-id="${escapeHtml(pool.id)}">
+              <input class="api-pool-enabled" type="checkbox"${assignment?.enabled ? " checked" : ""} />
+              <label>${escapeHtml(pool.name)} <span class="muted">${escapeHtml(pool.type)} · ${pool.proxies.length} proxies</span></label>
+              <input class="api-pool-rph" type="number" min="1" value="${Number(assignment?.requestsPerHour || 60)}" placeholder="req/hr" title="Requests/hour/proxy" />
+              <input class="api-pool-cooldown" type="number" min="1" value="${Number(assignment?.cooldownMinutes || 30)}" placeholder="cooldown" title="Cooldown minutes" />
+              <input class="api-pool-failures" type="number" min="1" value="${Number(assignment?.maxConsecutiveFailures || 2)}" placeholder="errors" title="Failures before cooldown" />
+            </div>
+          `;
+        })
+        .join("")
+    : `<p class="muted">Create a proxy pool first.</p>`;
+
+  const selectedProfiles = new Set((api?.staticProfiles || []).map((profile) => profile.id));
+  apiProfileAssignments.innerHTML = platformProfiles.length
+    ? platformProfiles
+        .map(
+          (profile) => `
+            <div class="assignment-row profile-assignment-row" data-profile-id="${escapeHtml(profile.id)}">
+              <input class="api-profile-enabled" type="checkbox"${selectedProfiles.has(profile.id) ? " checked" : ""} />
+              <label>${escapeHtml(profile.name)} <span class="muted">${escapeHtml(profile.browserEngine)} · ${escapeHtml(profile.proxy?.value || "no proxy")}</span></label>
+              <span class="muted">${profile.locked ? "in use" : "ready"}</span>
+            </div>
+          `
+        )
+        .join("")
+    : `<p class="muted">Create a static profile first.</p>`;
+}
+
+function collectApiPoolAssignments() {
+  return [...apiPoolAssignments.querySelectorAll("[data-pool-id]")]
+    .filter((row) => row.querySelector(".api-pool-enabled")?.checked)
+    .map((row) => ({
+      poolId: row.dataset.poolId,
+      enabled: true,
+      requestsPerHour: Number(row.querySelector(".api-pool-rph")?.value) || 60,
+      cooldownMinutes: Number(row.querySelector(".api-pool-cooldown")?.value) || 30,
+      maxConsecutiveFailures: Number(row.querySelector(".api-pool-failures")?.value) || 2
+    }));
+}
+
+function collectApiProfileIds() {
+  return [...apiProfileAssignments.querySelectorAll("[data-profile-id]")]
+    .filter((row) => row.querySelector(".api-profile-enabled")?.checked)
+    .map((row) => row.dataset.profileId);
+}
+
+function resetApiEditor() {
+  editingApiId.value = "";
+  apiEditorTitle.textContent = "Create API";
+  apiEndpoint.textContent = "Save to generate endpoint";
+  apiName.value = "";
+  apiSlug.value = "";
+  renderApiScriptOptions(activeScript);
+  apiTargetDomain.value = "";
+  apiInputFields.innerHTML = "";
+  apiMaxConcurrentRuns.value = "1";
+  apiMaxQueuedRequests.value = "100";
+  apiProfileMode.value = "DISPOSABLE";
+  apiDisposableMaxRequests.value = "1";
+  apiDisposableRetention.value = "0";
+  apiEnabled.checked = true;
+  apiEditorResult.textContent = "";
+  renderApiAssignments(null);
+}
+
+function editApi(api) {
+  editingApiId.value = api.id;
+  apiEditorTitle.textContent = `Edit: ${api.name}`;
+  apiEndpoint.textContent = `${apiOrigin()}/v1/${api.slug}`;
+  apiName.value = api.name;
+  apiSlug.value = api.slug;
+  renderApiScriptOptions(api.scriptName);
+  apiTargetDomain.value = api.targetDomain;
+  apiInputFields.innerHTML = "";
+  (api.inputSchema || []).forEach((field) => addApiInputField(field));
+  apiMaxConcurrentRuns.value = String(api.maxConcurrentRuns || 1);
+  apiMaxQueuedRequests.value = String(api.maxQueuedRequests ?? 100);
+  apiProfileMode.value = api.profileMode || "DISPOSABLE";
+  apiDisposableMaxRequests.value = String(api.disposableProfileMaxRequests || 1);
+  apiDisposableRetention.value = String(api.disposableProfileRetentionMinutes || 0);
+  apiEnabled.checked = Boolean(api.enabled);
+  apiEditorResult.textContent = `Capacity: ${api.hourlyCapacity || 0}/hour, ${api.ratePerMinute || 0}/minute, ${api.ratePerSecond || 0}/second. Used this hour: ${api.usedThisHour || 0}.`;
+  renderApiAssignments(api);
+  renderApisList();
+}
+
+function renderApisList() {
+  const selectedId = editingApiId.value;
+  apisList.innerHTML = platformApis.length
+    ? platformApis
+        .map(
+          (api) => `
+            <div class="manager-item${api.id === selectedId ? " active" : ""}">
+              <div class="manager-item-head">
+                <strong>${escapeHtml(api.name)}</strong>
+                <span class="status ${api.enabled ? "done" : "failed"}">${api.enabled ? "enabled" : "disabled"}</span>
+              </div>
+              <code>/v1/${escapeHtml(api.slug)}</code>
+              <div class="muted">${escapeHtml(api.targetDomain)} · ${api.hourlyCapacity || 0}/hr · ${api.ratePerMinute || 0}/min · ${api.maxConcurrentRuns} browsers</div>
+              <button class="ghost small open-api" data-id="${escapeHtml(api.id)}">Edit</button>
+            </div>
+          `
+        )
+        .join("")
+    : `<p class="muted">No published APIs yet. Create one from API code.</p>`;
+}
+
+function renderProxyPools() {
+  const proxyOptions = platformPools.flatMap((pool) =>
+    pool.proxies.map(
+      (entry) =>
+        `<option value="${escapeHtml(entry.id)}">${escapeHtml(pool.name)} · ${escapeHtml(entry.value)}</option>`
+    )
+  );
+  staticProfileProxy.innerHTML = proxyOptions.length
+    ? `<option value="">Select fixed proxy...</option>${proxyOptions.join("")}`
+    : `<option value="">Create a proxy pool first</option>`;
+
+  proxyPoolsList.innerHTML = platformPools.length
+    ? platformPools
+        .map((pool) => {
+          const proxies = pool.proxies.length
+            ? pool.proxies
+                .map((entry) => {
+                  const health = entry.health;
+                  const healthText = health?.cooling
+                    ? `cooling until ${new Date(health.cooldownUntil).toLocaleTimeString()}`
+                    : health?.totalFailureCount
+                    ? `${health.totalFailureCount} failures${health.lastError ? `: ${health.lastError}` : ""}`
+                    : "healthy";
+                  const healthClass = health?.cooling || health?.totalFailureCount ? "health-bad" : "health-good";
+                  return `
+                    <div class="proxy-row">
+                      <div>
+                        <code>${escapeHtml(entry.value)}</code>
+                        <div class="muted ${healthClass}">${escapeHtml(healthText)} · ${health?.requestCount || 0} used this hour</div>
+                      </div>
+                      <button class="ghost danger small delete-proxy" data-id="${escapeHtml(entry.id)}">Remove</button>
+                    </div>
+                  `;
+                })
+                .join("")
+            : `<p class="muted">No proxies in this pool.</p>`;
+          return `
+            <div class="manager-item">
+              <div class="manager-item-head">
+                <strong>${escapeHtml(pool.name)}</strong>
+                <span class="status ${pool.type === "DYNAMIC" ? "running" : "done"}">${escapeHtml(pool.type)}</span>
+              </div>
+              <div class="muted">${escapeHtml(pool.description || "No description")} · assigned to ${pool.apiCount} APIs</div>
+              <div class="proxy-list">${proxies}</div>
+              <div class="row manager-actions">
+                <button class="ghost small add-pool-proxies" data-id="${escapeHtml(pool.id)}">Add Proxies</button>
+                <button class="ghost danger small delete-pool" data-id="${escapeHtml(pool.id)}">Delete Pool</button>
+              </div>
+            </div>
+          `;
+        })
+        .join("")
+    : `<p class="muted">No proxy pools yet.</p>`;
+}
+
+function renderStaticProfiles() {
+  staticProfilePreset.innerHTML = [
+    `<option value="">Use current browser setup</option>`,
+    ...presets.map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.label)}</option>`)
+  ].join("");
+  staticProfilesList.innerHTML = platformProfiles.length
+    ? platformProfiles
+        .map(
+          (profile) => `
+            <div class="manager-item">
+              <div class="manager-item-head">
+                <strong>${escapeHtml(profile.name)}</strong>
+                <span class="status ${profile.locked ? "running" : profile.enabled ? "done" : "failed"}">${profile.locked ? "in use" : profile.enabled ? "ready" : "disabled"}</span>
+              </div>
+              <div class="muted">${escapeHtml(profile.browserEngine)} · ${escapeHtml(profile.proxy?.value || "missing proxy")}</div>
+              <div class="muted">used ${profile.requestCount} times · assigned to ${profile.apiCount} APIs</div>
+              <div class="row manager-actions">
+                <button class="ghost small recreate-static-profile" data-id="${escapeHtml(profile.id)}">Recreate</button>
+                <button class="ghost danger small delete-static-profile" data-id="${escapeHtml(profile.id)}">Delete Profile</button>
+              </div>
+            </div>
+          `
+        )
+        .join("")
+    : `<p class="muted">No static profiles yet.</p>`;
+}
+
+async function loadApiPlatform({ keepEditor = true } = {}) {
+  try {
+    const status = await fetchJson("/api/database/status");
+    if (!status.configured || !status.connected) {
+      databaseStatus.textContent = status.error || "PostgreSQL is unavailable. Set DATABASE_URL and deploy migrations.";
+      databaseStatus.className = "muted health-bad";
+      platformApis = [];
+      platformPools = [];
+      platformProfiles = [];
+      renderApisList();
+      renderProxyPools();
+      renderStaticProfiles();
+      if (!keepEditor) resetApiEditor();
+      return;
+    }
+    databaseStatus.textContent = "PostgreSQL connected. API scheduler is ready.";
+    databaseStatus.className = "muted health-good";
+    const [apis, pools, profiles] = await Promise.all([
+      fetchJson("/api/apis"),
+      fetchJson("/api/proxy-pools"),
+      fetchJson("/api/profiles")
+    ]);
+    platformApis = apis;
+    platformPools = pools;
+    platformProfiles = profiles;
+    renderProxyPools();
+    renderStaticProfiles();
+    const selected = platformApis.find((api) => api.id === editingApiId.value);
+    if (selected && keepEditor) editApi(selected);
+    else resetApiEditor();
+    renderApisList();
+  } catch (err) {
+    databaseStatus.textContent = platformErrorMessage(err);
+    databaseStatus.className = "muted health-bad";
+  }
+}
+
+async function saveApi() {
+  try {
+    const inputSchema = collectApiInputSchema();
+    const body = {
+      name: apiName.value.trim(),
+      slug: apiSlug.value.trim(),
+      scriptName: apiScriptName.value,
+      targetDomain: apiTargetDomain.value.trim(),
+      inputSchema,
+      enabled: apiEnabled.checked,
+      maxConcurrentRuns: Number(apiMaxConcurrentRuns.value) || 1,
+      maxQueuedRequests: Number(apiMaxQueuedRequests.value) || 100,
+      profileMode: apiProfileMode.value,
+      disposableProfileMaxRequests: Number(apiDisposableMaxRequests.value) || 1,
+      disposableProfileRetentionMinutes: Number(apiDisposableRetention.value) || 0
+    };
+    const api = editingApiId.value
+      ? await fetchJson(`/api/apis/${encodeURIComponent(editingApiId.value)}`, { method: "PUT", body: JSON.stringify(body) })
+      : await fetchJson("/api/apis", { method: "POST", body: JSON.stringify(body) });
+    await fetchJson(`/api/apis/${encodeURIComponent(api.id)}/proxy-pools`, {
+      method: "PUT",
+      body: JSON.stringify({ assignments: collectApiPoolAssignments() })
+    });
+    await fetchJson(`/api/apis/${encodeURIComponent(api.id)}/profiles`, {
+      method: "PUT",
+      body: JSON.stringify({ profileIds: collectApiProfileIds() })
+    });
+    editingApiId.value = api.id;
+    apiEditorResult.textContent = `Saved ${api.name}. Endpoint: ${apiOrigin()}/v1/${api.slug}`;
+    await loadApiPlatform();
+  } catch (err) {
+    apiEditorResult.textContent = platformErrorMessage(err);
+  }
+}
+
+async function deleteCurrentApi() {
+  const id = editingApiId.value;
+  if (!id || !confirm("Delete this API and its disposable profiles/run history? API code files are kept.")) return;
+  try {
+    await fetchJson(`/api/apis/${encodeURIComponent(id)}`, { method: "DELETE" });
+    resetApiEditor();
+    await loadApiPlatform({ keepEditor: false });
+  } catch (err) {
+    apiEditorResult.textContent = platformErrorMessage(err);
+  }
+}
+
+async function createPool() {
+  try {
+    await fetchJson("/api/proxy-pools", {
+      method: "POST",
+      body: JSON.stringify({
+        name: proxyPoolName.value.trim(),
+        type: proxyPoolType.value,
+        description: proxyPoolDescription.value.trim(),
+        proxiesText: proxyPoolProxies.value
+      })
+    });
+    proxyPoolName.value = "";
+    proxyPoolDescription.value = "";
+    proxyPoolProxies.value = "";
+    await loadApiPlatform();
+  } catch (err) {
+    alert(platformErrorMessage(err));
+  }
+}
+
+async function createStaticProfile() {
+  try {
+    await fetchJson("/api/profiles", {
+      method: "POST",
+      body: JSON.stringify({
+        name: staticProfileName.value.trim(),
+        proxyId: staticProfileProxy.value,
+        browserEngine: staticProfileEngine.value,
+        fingerprintPresetId: staticProfilePreset.value || null
+      })
+    });
+    staticProfileName.value = "";
+    await loadApiPlatform();
+  } catch (err) {
+    alert(platformErrorMessage(err));
+  }
+}
+
+async function importExistingCode() {
+  if (!confirm("Create database API records for existing code files? APIs whose target domain cannot be inferred are created disabled.")) return;
+  try {
+    const result = await fetchJson("/api/database/import-legacy", { method: "POST", body: "{}" });
+    apiEditorResult.textContent = `Imported ${result.created} APIs. Skipped ${result.skipped} already-linked code files.`;
+    await loadApiPlatform({ keepEditor: false });
+  } catch (err) {
+    apiEditorResult.textContent = platformErrorMessage(err);
+  }
+}
+
 scriptsList.addEventListener("click", async (event) => {
   const btn = event.target.closest(".script-item");
   if (!btn) return;
@@ -555,6 +1003,72 @@ syncInputsList.addEventListener("click", (event) => {
   row?.remove();
 });
 
+apisList.addEventListener("click", (event) => {
+  const button = event.target.closest(".open-api");
+  if (!button) return;
+  const api = platformApis.find((item) => item.id === button.dataset.id);
+  if (api) editApi(api);
+});
+
+apiInputFields.addEventListener("click", (event) => {
+  const button = event.target.closest(".api-input-remove");
+  if (!button) return;
+  button.closest(".input-schema-row")?.remove();
+});
+
+proxyPoolsList.addEventListener("click", async (event) => {
+  const proxyButton = event.target.closest(".delete-proxy");
+  const poolButton = event.target.closest(".delete-pool");
+  const addButton = event.target.closest(".add-pool-proxies");
+  try {
+    if (proxyButton) {
+      if (!confirm("Remove this proxy? Any static profile using it will need a new fixed proxy.")) return;
+      await fetchJson(`/api/proxies/${encodeURIComponent(proxyButton.dataset.id)}`, { method: "DELETE" });
+      await loadApiPlatform();
+      return;
+    }
+    if (poolButton) {
+      if (!confirm("Delete this proxy pool and remove its assignments from APIs?")) return;
+      await fetchJson(`/api/proxy-pools/${encodeURIComponent(poolButton.dataset.id)}`, { method: "DELETE" });
+      await loadApiPlatform();
+      return;
+    }
+    if (addButton) {
+      const proxiesText = prompt("Add proxies, one per line");
+      if (!proxiesText) return;
+      await fetchJson(`/api/proxy-pools/${encodeURIComponent(addButton.dataset.id)}/proxies`, {
+        method: "POST",
+        body: JSON.stringify({ proxiesText })
+      });
+      await loadApiPlatform();
+    }
+  } catch (err) {
+    alert(platformErrorMessage(err));
+  }
+});
+
+staticProfilesList.addEventListener("click", async (event) => {
+  const deleteButton = event.target.closest(".delete-static-profile");
+  const recreateButton = event.target.closest(".recreate-static-profile");
+  if (!deleteButton && !recreateButton) return;
+  try {
+    if (recreateButton) {
+      const profile = platformProfiles.find((item) => item.id === recreateButton.dataset.id);
+      if (!profile || !confirm(`Recreate ${profile.name}? This deletes its saved browser data.`)) return;
+      await fetchJson("/api/profile/recreate", {
+        method: "POST",
+        body: JSON.stringify({ profileName: profile.profileDir })
+      });
+    } else {
+      if (!confirm("Delete this static browser profile and its saved browser data?")) return;
+      await fetchJson(`/api/profiles/${encodeURIComponent(deleteButton.dataset.id)}`, { method: "DELETE" });
+    }
+    await loadApiPlatform();
+  } catch (err) {
+    alert(platformErrorMessage(err));
+  }
+});
+
 newScriptBtn.addEventListener("click", createScript);
 downloadScriptBtn.addEventListener("click", downloadScript);
 uploadScriptBtn.addEventListener("click", triggerUploadScript);
@@ -574,6 +1088,20 @@ recreateProfileBtn.addEventListener("click", recreateProfile);
 applyPresetBtn.addEventListener("click", applySelectedPreset);
 addSyncInputBtn.addEventListener("click", () => addSyncInputRow("", ""));
 runSyncBtn.addEventListener("click", runSyncTest);
+newApiBtn.addEventListener("click", resetApiEditor);
+addApiInputBtn.addEventListener("click", () => addApiInputField());
+saveApiBtn.addEventListener("click", saveApi);
+deleteApiBtn.addEventListener("click", deleteCurrentApi);
+createProxyPoolBtn.addEventListener("click", createPool);
+createStaticProfileBtn.addEventListener("click", createStaticProfile);
+importLegacyBtn.addEventListener("click", importExistingCode);
+apiName.addEventListener("input", () => {
+  if (editingApiId.value || apiSlug.value.trim()) return;
+  apiSlug.value = apiName.value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+});
 apiDocsBtn.addEventListener("click", () => apiDocsModal.classList.remove("hidden"));
 closeApiDocsBtn.addEventListener("click", () => apiDocsModal.classList.add("hidden"));
 apiDocsModal.addEventListener("click", (event) => {
@@ -595,6 +1123,7 @@ async function init() {
   await Promise.all([loadConfig(), loadPresets(), loadScripts(), loadRuns(), loadMetrics()]);
   addSyncInputRow("var", "");
   addSyncInputRow("var2", "");
+  await loadApiPlatform({ keepEditor: false });
   setInterval(loadRuns, 2500);
   setInterval(loadMetrics, 2500);
 }

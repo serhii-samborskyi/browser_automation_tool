@@ -43,4 +43,9 @@ seed_missing_scripts
 seed_camoufox_cache
 ensure_owned_dir "$HOME/.cache/camoufox"
 
+if [ -n "${DATABASE_URL:-}" ]; then
+  echo "Applying Prisma migrations..."
+  gosu "$APP_USER" npx prisma migrate deploy
+fi
+
 exec gosu "$APP_USER" "$@"

@@ -1,18 +1,23 @@
-# Browser Automation Tool
+# Browser API Factory
 
-Local Playwright automation runner with:
+Playwright browser automation that turns browser interfaces into reusable HTTP APIs.
 
-- script editor + run UI
-- sync and async API execution
+Features:
+
+- API code editor + manual run UI
+- published `GET`/`POST` API endpoints backed by browser code
+- PostgreSQL/Prisma persistence for APIs, proxy pools, profiles, proxy health, and API run history
 - browser engine selection (`chromium`, `chrome`, `camoufox`)
-- proxy support
+- static and dynamic proxy pools with per-domain, per-proxy hourly limits
+- static browser profiles and automatically cleaned disposable profiles
 - profile recreation + fingerprint rotation controls
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 22+ recommended
 - npm
 - Linux/macOS (tested on macOS and Linux)
+- PostgreSQL 14+ for API Builder, proxy pools, and profile management
 
 ## Quick Start
 
@@ -43,9 +48,10 @@ including headed jobs running in the container's virtual display.
 1. Create an application from this repository in Coolify.
 2. Set the build pack to `Dockerfile` and deploy from the repository root.
 3. Set **Ports Exposes** to `3000`.
-4. Set `PORT=3000` and `HOST=0.0.0.0` in Coolify. Those are image defaults,
+4. Add a PostgreSQL service in Coolify, then set `DATABASE_URL` to its connection URL.
+5. Set `PORT=3000` and `HOST=0.0.0.0` in Coolify. Those are image defaults,
    but declaring them makes the deployment configuration explicit.
-5. Add persistent storages with these destination paths:
+6. Add persistent storages with these destination paths:
 
 | Destination | Keeps |
 | --- | --- |
@@ -56,11 +62,77 @@ including headed jobs running in the container's virtual display.
 
 Do not mount a volume at `/app`; it would hide the application files. On the
 first start, the container seeds bundled scripts and the Camoufox binary into
-empty persistent storage automatically.
+empty persistent storage automatically. When `DATABASE_URL` is present, the
+container runs `prisma migrate deploy` before it starts the server.
 
 The Chrome package in this image is for `linux/amd64`. Deploy to an x86_64
 Coolify host when using the `chrome` engine. Restrict access to this app: its
 API can execute uploaded automation scripts and has no authentication layer.
+
+## PostgreSQL Setup
+
+Set `DATABASE_URL` before enabling API Builder. Example for a local PostgreSQL
+database:
+
+```bash
+export DATABASE_URL='postgresql://browser_api:password@127.0.0.1:5432/browser_api?schema=public'
+npm run db:migrate
+npm start
+```
+
+Prisma schema and versioned migrations are in `prisma/`. The first startup does
+not alter existing code files or browser profiles. Open **API Builder** and use
+**Import Existing Code** to create disabled/enabled API records from existing
+`.js` files. A target hostname is inferred from `page.goto()` when possible;
+otherwise configure it before enabling the API.
+If the existing browser setup has a default proxy, import also creates an
+`Imported default proxy` pool and assigns it to the new API records.
+
+## Published APIs
+
+Each published API links to one API code file from `scripts/`, declares a target
+domain, and defines input fields. The code keeps the existing runtime contract:
+input values are available as `input.<field>`, and its returned value becomes
+the JSON `result` in the HTTP response.
+
+Create an API in the UI, then call it directly:
+
+```bash
+curl -X POST "http://localhost:4300/v1/google-results" \
+  -H "Content-Type: application/json" \
+  -d '{"search_request":"closest planet to earth"}'
+
+curl "http://localhost:4300/v1/google-results?search_request=closest%20planet%20to%20earth"
+```
+
+The API response contains `result` from the code and a `meta` object with the
+run duration, traffic measurement, selected pool, and browser profile. Proxy
+credentials are never included in the public response.
+
+There is intentionally no API authentication because this deployment was
+requested without it. Keep the application private or behind your own network
+access control before exposing it beyond trusted callers.
+
+## Proxy Scheduling
+
+Create one or more proxy pools and assign multiple pools to an API.
+The scheduler combines their available capacity and chooses the eligible proxy
+with the lowest request count for that API and target domain.
+API Builder displays the combined hourly, per-minute, and per-second capacity
+for every published API.
+
+- Static pool: upload one proxy per line. Every proxy adds its own request/hour capacity.
+- Dynamic pool: contains exactly one rotating proxy endpoint. It counts as one logical proxy, even when its external IP changes per request.
+- Each API-to-pool assignment sets requests/hour/proxy, cooldown minutes, and error threshold.
+- Every request, including failed browser requests, counts toward the hourly limit.
+- A `429`, CAPTCHA/rate-limit error, or repeated browser failures cools that proxy down for the target domain.
+- Proxy Pool Manager shows the latest error/cooldown state and can remove bad proxies.
+
+## Browser Profiles
+
+- Static profiles have a fixed proxy and are locked to one active request. Assign them to APIs that must reuse cookies or session state.
+- Disposable profiles are generated with a random standard fingerprint and selected proxy. Set reuse requests and idle retention in API Builder; they are removed automatically after their request limit or retention expiry.
+- `AUTO` profile mode prefers an available assigned static profile, then creates a disposable profile when none is available.
 
 ## Run Commands
 
@@ -124,7 +196,7 @@ curl -X POST "http://localhost:4300/api/config" \
   }'
 ```
 
-### Run Script Sync (GET)
+### Run API Code Sync (GET)
 
 All extra query params are passed to script as `input`.
 
@@ -139,7 +211,7 @@ Useful flags:
 - `noProxy=true`
 - `profileName=default`
 
-### Run Script Async (POST)
+### Run API Code Async (POST)
 
 ```bash
 curl -X POST "http://localhost:4300/api/scripts/run" \
@@ -232,7 +304,10 @@ State file:
 
 ## UI Extras
 
-- Upload/Download script files in editor toolbar
+- API Builder with generated public endpoint preview
+- Proxy Pool Manager with proxy health/cooldowns
+- Static Profile Manager with fixed proxy assignment
+- Upload/Download API code files in editor toolbar
 - API Docs modal with copy-ready examples
 - Sync input tester for `input` variables
 
@@ -241,9 +316,10 @@ State file:
 - `server.js` - Express API + script execution
 - `browser_setup.js` - browser launch/fingerprint/proxy logic
 - `public/` - UI
-- `scripts/` - user scripts
+- `scripts/` - API code files
 - `profile/` - browser profiles
 - `data/` - runtime config/state
+- `prisma/` - PostgreSQL schema and migration history
 
 ## GitHub Publish
 

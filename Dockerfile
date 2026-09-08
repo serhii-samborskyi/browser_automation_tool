@@ -24,10 +24,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
+COPY prisma ./prisma
 
 # Browser binaries are installed at build time, so a freshly deployed container
 # does not need to download them before it can accept requests.
 RUN npm ci --omit=dev \
+    && npx prisma generate \
     && npx playwright install --with-deps chromium firefox \
     && npx camoufox-js fetch \
     && mkdir -p /app/data /app/profile /app/scripts /app/scripts-default /opt/camoufox-cache-default \

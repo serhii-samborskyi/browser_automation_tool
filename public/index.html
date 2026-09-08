@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Playwright Runner</title>
+  <title>Browser API Factory</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -38,10 +38,10 @@
   <main class="layout">
     <aside class="panel scripts-panel">
       <div class="panel-head">
-        <h2>Scripts</h2>
+        <h2>API Code</h2>
         <div class="row">
           <button id="apiDocsBtn" class="ghost">API Docs</button>
-          <button id="newScriptBtn" class="ghost">New</button>
+          <button id="newScriptBtn" class="ghost">New Code</button>
         </div>
       </div>
       <div id="scriptsList" class="scripts-list"></div>
@@ -49,20 +49,20 @@
 
     <section class="panel editor-panel">
       <div class="panel-head">
-        <h2 id="currentScriptTitle">No script selected</h2>
+        <h2 id="currentScriptTitle">No API code selected</h2>
         <div class="row">
           <button id="downloadScriptBtn" class="ghost">Download</button>
           <button id="uploadScriptBtn" class="ghost">Upload</button>
           <button id="saveScriptBtn" class="ghost">Save</button>
           <button id="deleteScriptBtn" class="ghost danger">Delete</button>
-          <button id="runScriptBtn">Run</button>
+          <button id="runScriptBtn">Run Code</button>
         </div>
       </div>
       <input id="uploadScriptInput" type="file" accept=".js,text/javascript,application/javascript" class="hidden" />
       <textarea id="scriptEditor" spellcheck="false"></textarea>
       <div class="sync-tester">
         <div class="panel-head">
-          <h3>Sync Input Tester</h3>
+          <h3>Code Input Tester</h3>
           <button id="addSyncInputBtn" class="ghost small">Add Input</button>
         </div>
         <div id="syncInputsList" class="sync-inputs"></div>
@@ -178,9 +178,166 @@
     </aside>
   </main>
 
+  <section class="panel api-platform-panel">
+    <div class="panel-head">
+      <div>
+        <h2>API Builder</h2>
+        <p id="databaseStatus" class="muted">Checking PostgreSQL connection...</p>
+      </div>
+      <div class="row compact-row">
+        <button id="importLegacyBtn" class="ghost">Import Existing Code</button>
+        <button id="newApiBtn" class="ghost">New API</button>
+      </div>
+    </div>
+
+    <div class="api-platform-grid">
+      <section class="manager-column">
+        <h3>Published APIs</h3>
+        <div id="apisList" class="manager-list"></div>
+      </section>
+
+      <section class="manager-editor">
+        <div class="panel-head">
+          <h3 id="apiEditorTitle">Create API</h3>
+          <span id="apiEndpoint" class="endpoint muted">Save to generate endpoint</span>
+        </div>
+        <input id="editingApiId" type="hidden" />
+
+        <div class="form-grid two-up">
+          <div>
+            <label>API Name</label>
+            <input id="apiName" placeholder="Google result extractor" />
+          </div>
+          <div>
+            <label>Endpoint Slug</label>
+            <input id="apiSlug" placeholder="google-results" />
+          </div>
+        </div>
+        <div class="form-grid two-up">
+          <div>
+            <label>API Code</label>
+            <select id="apiScriptName"></select>
+          </div>
+          <div>
+            <label>Target Domain</label>
+            <input id="apiTargetDomain" placeholder="google.com" />
+          </div>
+        </div>
+
+        <label>Input Fields</label>
+        <p class="muted">These fields become <code>input.&lt;name&gt;</code> in the API code. Other supplied fields remain available for compatibility.</p>
+        <div id="apiInputFields" class="input-schema-list"></div>
+        <button id="addApiInputBtn" class="ghost small" type="button">Add Input Field</button>
+
+        <div class="form-grid three-up">
+          <div>
+            <label>Concurrent Browsers</label>
+            <input id="apiMaxConcurrentRuns" type="number" min="1" value="1" />
+          </div>
+          <div>
+            <label>Queued Requests</label>
+            <input id="apiMaxQueuedRequests" type="number" min="0" value="100" />
+          </div>
+          <div>
+            <label>Profile Mode</label>
+            <select id="apiProfileMode">
+              <option value="DISPOSABLE">Disposable</option>
+              <option value="STATIC">Static only</option>
+              <option value="AUTO">Static, then disposable</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid two-up">
+          <div>
+            <label>Disposable Profile Reuse (requests)</label>
+            <input id="apiDisposableMaxRequests" type="number" min="1" value="1" />
+          </div>
+          <div>
+            <label>Disposable Profile Idle Retention (minutes)</label>
+            <input id="apiDisposableRetention" type="number" min="0" value="0" />
+          </div>
+        </div>
+
+        <label>Assigned Proxy Pools</label>
+        <p class="muted">Each proxy has this per-hour limit for this API and target domain. Two assigned pools add their capacity together.</p>
+        <div id="apiPoolAssignments" class="assignment-list"></div>
+
+        <label>Assigned Static Profiles</label>
+        <div id="apiProfileAssignments" class="assignment-list"></div>
+
+        <label class="checkbox">
+          <input id="apiEnabled" type="checkbox" checked />
+          <span>API enabled</span>
+        </label>
+        <div class="row manager-actions">
+          <button id="saveApiBtn">Save API</button>
+          <button id="deleteApiBtn" class="ghost danger">Delete API</button>
+        </div>
+        <pre id="apiEditorResult" class="logs manager-result"></pre>
+      </section>
+    </div>
+  </section>
+
+  <section class="management-grid">
+    <section class="panel">
+      <div class="panel-head"><h2>Proxy Pools</h2></div>
+      <div class="form-grid two-up">
+        <div>
+          <label>Pool Name</label>
+          <input id="proxyPoolName" placeholder="Residential pool" />
+        </div>
+        <div>
+          <label>Pool Type</label>
+          <select id="proxyPoolType">
+            <option value="STATIC">Static proxy list</option>
+            <option value="DYNAMIC">Dynamic proxy</option>
+          </select>
+        </div>
+      </div>
+      <label>Description</label>
+      <input id="proxyPoolDescription" placeholder="Optional" />
+      <label>Proxies</label>
+      <textarea id="proxyPoolProxies" rows="5" placeholder="One per line: host:port, user:pass@host:port, http://..., or socks5://..."></textarea>
+      <p class="muted">Dynamic pools accept exactly one proxy. The same proxy is rate-limited as one rotating endpoint.</p>
+      <button id="createProxyPoolBtn" class="ghost">Create Proxy Pool</button>
+      <div id="proxyPoolsList" class="manager-list proxy-pools-list"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Static Profiles</h2></div>
+      <div class="form-grid two-up">
+        <div>
+          <label>Profile Name</label>
+          <input id="staticProfileName" placeholder="google-us-01" />
+        </div>
+        <div>
+          <label>Fixed Proxy</label>
+          <select id="staticProfileProxy"></select>
+        </div>
+      </div>
+      <div class="form-grid two-up">
+        <div>
+          <label>Browser Engine</label>
+          <select id="staticProfileEngine">
+            <option value="chromium">Chromium</option>
+            <option value="chrome">Google Chrome</option>
+            <option value="camoufox">Camoufox</option>
+          </select>
+        </div>
+        <div>
+          <label>Fingerprint Preset</label>
+          <select id="staticProfilePreset"></select>
+        </div>
+      </div>
+      <button id="createStaticProfileBtn" class="ghost">Create Static Profile</button>
+      <p class="muted">A static profile is locked to one request at a time and always uses its fixed proxy.</p>
+      <div id="staticProfilesList" class="manager-list"></div>
+    </section>
+  </section>
+
   <section class="panel runs-panel">
     <div class="panel-head">
-      <h2>Runs</h2>
+      <h2>Manual Code Runs</h2>
       <div class="row">
         <button id="clearRunsBtn" class="ghost danger">Clear</button>
         <button id="refreshRunsBtn" class="ghost">Refresh</button>
@@ -199,6 +356,17 @@
       </div>
 
       <p class="muted">Base URL: <code>http://localhost:4300</code> (or your configured port)</p>
+
+      <div class="docs-card">
+        <h3>Published API (GET or POST)</h3>
+        <p class="muted">Create an API in API Builder, then callers send its declared variables directly. API execution uses its assigned proxy pools and browser profiles.</p>
+        <pre id="doc-public-api" class="logs docs-code">curl -X POST "http://localhost:4300/v1/google-results" \
+  -H "Content-Type: application/json" \
+  -d '{"search_request":"closest planet to earth"}'
+
+curl "http://localhost:4300/v1/google-results?search_request=closest%20planet%20to%20earth"</pre>
+        <button class="ghost small copy-btn" data-copy-target="doc-public-api">Copy</button>
+      </div>
 
       <div class="docs-card">
         <h3>Run Script Sync (GET)</h3>
