@@ -26,6 +26,7 @@ import {
   deleteProxy,
   deleteProxyPool,
   getApi,
+  getPublicApiDocumentation,
   importLegacyScripts,
   invokePublicApi,
   listApiRuns,
@@ -1200,6 +1201,21 @@ function publicApiInput(req) {
   return { ...body };
 }
 
+function publicRequestOrigin(req) {
+  const forwardedProtocol = String(req.get("x-forwarded-proto") || "").split(",")[0].trim().toLowerCase();
+  const protocol = forwardedProtocol === "https" ? "https" : req.protocol || "http";
+  const host = String(req.get("x-forwarded-host") || req.get("host") || "localhost").split(",")[0].trim();
+  return `${protocol}://${host}`;
+}
+
+async function handlePublicApiDocumentation(req, res) {
+  try {
+    res.json(await getPublicApiDocumentation(req.params.slug, publicRequestOrigin(req)));
+  } catch (err) {
+    sendPlatformError(res, err);
+  }
+}
+
 async function handlePublicApiRequest(req, res) {
   try {
     const output = await invokePublicApi({
@@ -1715,6 +1731,7 @@ app.post("/api/runs/:id/stop", async (req, res) => {
 
 // Public API endpoints generated in API Builder. GET query parameters and POST
 // JSON fields are validated against the API's declared input schema.
+app.get("/v1/:slug/docs", handlePublicApiDocumentation);
 app.get("/v1/:slug", handlePublicApiRequest);
 app.post("/v1/:slug", handlePublicApiRequest);
 

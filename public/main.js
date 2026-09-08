@@ -74,6 +74,7 @@ const newApiBtn = document.getElementById("newApiBtn");
 const apisList = document.getElementById("apisList");
 const apiEditorTitle = document.getElementById("apiEditorTitle");
 const apiEndpoint = document.getElementById("apiEndpoint");
+const openApiDocsBtn = document.getElementById("openApiDocsBtn");
 const editingApiId = document.getElementById("editingApiId");
 const apiName = document.getElementById("apiName");
 const apiSlug = document.getElementById("apiSlug");
@@ -104,6 +105,14 @@ const staticProfileEngine = document.getElementById("staticProfileEngine");
 const staticProfilePreset = document.getElementById("staticProfilePreset");
 const createStaticProfileBtn = document.getElementById("createStaticProfileBtn");
 const staticProfilesList = document.getElementById("staticProfilesList");
+const docsBaseUrl = document.getElementById("docsBaseUrl");
+const selectedApiDocs = document.getElementById("selectedApiDocs");
+const selectedApiDocsTitle = document.getElementById("selectedApiDocsTitle");
+const selectedApiDocsTarget = document.getElementById("selectedApiDocsTarget");
+const selectedApiDocsEndpoint = document.getElementById("selectedApiDocsEndpoint");
+const selectedApiDocsJson = document.getElementById("selectedApiDocsJson");
+const selectedApiDocsGet = document.getElementById("doc-selected-api-get");
+const selectedApiDocsPost = document.getElementById("doc-selected-api-post");
 
 let activeScript = null;
 let selectedRunId = null;
@@ -707,6 +716,85 @@ function apiOrigin() {
   return window.location.origin || "http://localhost:4300";
 }
 
+function documentationExampleValue(field) {
+  if (field?.default !== null && field?.default !== undefined && field.default !== "") return field.default;
+  if (field?.type === "number") return 1;
+  if (field?.type === "boolean") return true;
+  if (field?.type === "json") return { example: field.name };
+  return `example-${field?.name || "value"}`;
+}
+
+function documentationExampleInput(api) {
+  return Object.fromEntries(
+    (Array.isArray(api?.inputSchema) ? api.inputSchema : []).map((field) => [field.name, documentationExampleValue(field)])
+  );
+}
+
+function setDocumentationText(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value;
+}
+
+function renderGenericDocumentation() {
+  const origin = apiOrigin();
+  const exampleInput = { search_request: "closest planet to earth" };
+  const query = new URLSearchParams(exampleInput).toString();
+  if (docsBaseUrl) docsBaseUrl.textContent = origin;
+  setDocumentationText(
+    "doc-public-api",
+    [
+      `curl -X POST "${origin}/v1/google-results" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '${JSON.stringify(exampleInput)}'`,
+      "",
+      `curl "${origin}/v1/google-results?${query}"`
+    ].join("\n")
+  );
+  setDocumentationText(
+    "doc-run-sync",
+    `curl "${origin}/api/run-sync?scriptName=ai_overview.js&request=closest%20planet&noProxy=true&includeLogs=true"`
+  );
+  setDocumentationText(
+    "doc-run-async",
+    [
+      `curl -X POST "${origin}/api/scripts/run" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '{"name":"ai_overview.js","input":{"request":"closest planet to earth","noProxy":true}}'`
+    ].join("\n")
+  );
+  setDocumentationText(
+    "doc-runs-list",
+    `curl "${origin}/api/runs"\ncurl "${origin}/api/runs/<runId>"\ncurl -X POST "${origin}/api/runs/<runId>/stop"`
+  );
+}
+
+function openApiDocumentation(api = null) {
+  renderGenericDocumentation();
+  if (api) {
+    const endpoint = `${apiOrigin()}/v1/${api.slug}`;
+    const input = documentationExampleInput(api);
+    const params = new URLSearchParams();
+    Object.entries(input).forEach(([key, value]) => {
+      params.set(key, typeof value === "object" ? JSON.stringify(value) : String(value));
+    });
+    const getUrl = params.size ? `${endpoint}?${params.toString()}` : endpoint;
+    selectedApiDocsTitle.textContent = `${api.name} API`;
+    selectedApiDocsTarget.textContent = api.targetDomain || "Not configured";
+    selectedApiDocsEndpoint.textContent = endpoint;
+    selectedApiDocsJson.href = `${endpoint}/docs`;
+    selectedApiDocsGet.textContent = `curl "${getUrl}"`;
+    selectedApiDocsPost.textContent = [
+      `curl -X POST "${endpoint}" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '${JSON.stringify(input)}'`
+    ].join("\n");
+    selectedApiDocs.classList.remove("hidden");
+  } else {
+    selectedApiDocs.classList.add("hidden");
+  }
+  apiDocsModal.classList.remove("hidden");
+}
+
 function renderApiScriptOptions(selected = "") {
   const selectedName = selected || activeScript || availableScriptNames[0] || "";
   apiScriptName.innerHTML = availableScriptNames.length
@@ -826,6 +914,7 @@ function resetApiEditor() {
   editingApiId.value = "";
   apiEditorTitle.textContent = "Create API";
   apiEndpoint.textContent = "Save to generate endpoint";
+  openApiDocsBtn.disabled = true;
   apiName.value = "";
   apiSlug.value = "";
   renderApiScriptOptions(activeScript);
@@ -845,6 +934,7 @@ function editApi(api) {
   editingApiId.value = api.id;
   apiEditorTitle.textContent = `Edit: ${api.name}`;
   apiEndpoint.textContent = `${apiOrigin()}/v1/${api.slug}`;
+  openApiDocsBtn.disabled = false;
   apiName.value = api.name;
   apiSlug.value = api.slug;
   renderApiScriptOptions(api.scriptName);
@@ -875,7 +965,10 @@ function renderApisList() {
               </div>
               <code>/v1/${escapeHtml(api.slug)}</code>
               <div class="muted">${escapeHtml(api.targetDomain)} · ${api.hourlyCapacity || 0}/hr · ${api.ratePerMinute || 0}/min · ${api.maxConcurrentRuns} browsers</div>
-              <button class="ghost small open-api" data-id="${escapeHtml(api.id)}">Edit</button>
+              <div class="manager-actions api-list-actions">
+                <button class="ghost small open-api" data-id="${escapeHtml(api.id)}">Edit</button>
+                <button class="ghost small api-docs" data-id="${escapeHtml(api.id)}">Docs</button>
+              </div>
             </div>
           `
         )
@@ -1125,6 +1218,12 @@ syncInputsList.addEventListener("click", (event) => {
 });
 
 apisList.addEventListener("click", (event) => {
+  const docsButton = event.target.closest(".api-docs");
+  if (docsButton) {
+    const api = platformApis.find((item) => item.id === docsButton.dataset.id);
+    if (api) openApiDocumentation(api);
+    return;
+  }
   const button = event.target.closest(".open-api");
   if (!button) return;
   const api = platformApis.find((item) => item.id === button.dataset.id);
@@ -1248,7 +1347,11 @@ apiName.addEventListener("input", () => {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 });
-apiDocsBtn.addEventListener("click", () => apiDocsModal.classList.remove("hidden"));
+apiDocsBtn.addEventListener("click", () => openApiDocumentation());
+openApiDocsBtn.addEventListener("click", () => {
+  const api = platformApis.find((item) => item.id === editingApiId.value);
+  if (api) openApiDocumentation(api);
+});
 closeApiDocsBtn.addEventListener("click", () => apiDocsModal.classList.add("hidden"));
 apiDocsModal.addEventListener("click", (event) => {
   if (event.target === apiDocsModal) {

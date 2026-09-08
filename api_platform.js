@@ -348,6 +348,25 @@ async function getApiWithRelations(idOrSlug, bySlug = false) {
   return api;
 }
 
+// pg_advisory_xact_lock() returns PostgreSQL's `void` type. Prisma cannot
+// deserialize that type when it is returned directly by $queryRaw, so return a
+// normal boolean from a CTE after the transaction-scoped lock has been taken.
+async function acquireUsageLock(tx, lockKey) {
+  const rows = await tx.$queryRaw`
+    WITH advisory_lock AS (
+      SELECT pg_advisory_xact_lock(hashtext(${lockKey}))
+    )
+    SELECT TRUE AS locked FROM advisory_lock
+  `;
+  if (!rows?.[0]?.locked) {
+    throw new ApiPlatformError("Could not acquire the proxy usage lock.", {
+      status: 503,
+      code: "PROXY_USAGE_LOCK_FAILED",
+      retryAfterSeconds: 1
+    });
+  }
+}
+
 function getApiSlotState(apiId) {
   let state = apiSlots.get(apiId);
   if (!state) {
@@ -606,7 +625,7 @@ async function claimProxyForApi(api, preferredProxyId = null) {
 
     const claimed = await db.$transaction(async (tx) => {
       const lockKey = `proxy-usage:${api.id}:${candidate.proxy.id}:${targetDomain}`;
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      await acquireUsageLock(tx, lockKey);
       let usage = await tx.proxyUsage.upsert({
         where: {
           apiId_proxyId_targetDomain: {
@@ -661,7 +680,7 @@ async function recordProxyOutcome(lease, { ok, error = null, statusCode = null }
   const now = new Date();
   await db.$transaction(async (tx) => {
     const lockKey = `proxy-usage:${lease.link.apiId}:${lease.proxy.id}:${lease.targetDomain}`;
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    await acquireUsageLock(tx, lockKey);
     const usage = await tx.proxyUsage.findUnique({
       where: {
         apiId_proxyId_targetDomain: {
@@ -897,6 +916,71 @@ export async function listApis() {
 
 export async function getApi(id) {
   return apiSnapshot(await getApiWithRelations(id));
+}
+
+function documentationExampleValue(field) {
+  if (field?.default !== null && field?.default !== undefined && field.default !== "") return field.default;
+  if (field?.type === "number") return 1;
+  if (field?.type === "boolean") return true;
+  if (field?.type === "json") return { example: field.name };
+  return `example-${field?.name || "value"}`;
+}
+
+function documentationInput(schema) {
+  return Object.fromEntries(
+    (Array.isArray(schema) ? schema : []).map((field) => [field.name, documentationExampleValue(field)])
+  );
+}
+
+function documentationQuery(input) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(input)) {
+    params.set(key, typeof value === "object" ? JSON.stringify(value) : String(value));
+  }
+  return params.toString();
+}
+
+export async function getPublicApiDocumentation(slug, baseUrl) {
+  const api = apiSnapshot(await getApiWithRelations(normalizeSlug(slug), true));
+  const origin = String(baseUrl || "").replace(/\/+$/, "");
+  const endpoint = `${origin}/v1/${api.slug}`;
+  const exampleInput = documentationInput(api.inputSchema);
+  const query = documentationQuery(exampleInput);
+  const getUrl = query ? `${endpoint}?${query}` : endpoint;
+  const postBody = JSON.stringify(exampleInput, null, 2);
+
+  return {
+    ok: true,
+    api: {
+      id: api.id,
+      name: api.name,
+      slug: api.slug,
+      targetDomain: api.targetDomain,
+      enabled: api.enabled,
+      scriptName: api.scriptName
+    },
+    endpoint,
+    documentationEndpoint: `${endpoint}/docs`,
+    methods: ["GET", "POST"],
+    inputSchema: api.inputSchema,
+    example: {
+      input: exampleInput,
+      getUrl,
+      post: {
+        url: endpoint,
+        headers: { "Content-Type": "application/json" },
+        body: exampleInput
+      },
+      curl: {
+        get: `curl "${getUrl}"`,
+        post: [
+          `curl -X POST "${endpoint}" \\`,
+          `  -H "Content-Type: application/json" \\`,
+          `  -d '${postBody}'`
+        ].join("\n")
+      }
+    }
+  };
 }
 
 function apiWriteData(body, { partial = false } = {}) {

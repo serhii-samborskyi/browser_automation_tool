@@ -112,7 +112,7 @@
           <div class="api-platform-grid">
             <section class="manager-column"><div class="subsection-title"><span>Published APIs</span><small>Endpoint catalog</small></div><div id="apisList" class="manager-list"></div></section>
             <section class="manager-editor">
-              <div class="panel-head"><div><p class="eyebrow">API definition</p><h3 id="apiEditorTitle">Create API</h3></div><span id="apiEndpoint" class="endpoint muted">Save to generate endpoint</span></div>
+              <div class="panel-head"><div><p class="eyebrow">API definition</p><h3 id="apiEditorTitle">Create API</h3></div><div class="action-row compact-actions"><span id="apiEndpoint" class="endpoint muted">Save to generate endpoint</span><button id="openApiDocsBtn" class="ghost small" type="button" disabled>API docs</button></div></div>
               <input id="editingApiId" type="hidden" />
               <div class="form-grid two-up"><div><label>API Name</label><input id="apiName" placeholder="Google result extractor" /></div><div><label>Endpoint Slug</label><input id="apiSlug" placeholder="google-results" /></div></div>
               <div class="form-grid two-up"><div><label>API Code</label><select id="apiScriptName"></select></div><div><label>Target Domain</label><input id="apiTargetDomain" placeholder="google.com" /></div></div>
@@ -152,7 +152,14 @@
   <div id="apiDocsModal" class="docs-modal hidden" role="dialog" aria-modal="true" aria-labelledby="apiDocsTitle">
     <div class="docs-panel">
       <div class="panel-head"><div><p class="eyebrow">Integration reference</p><h2 id="apiDocsTitle">API Documentation</h2></div><button id="closeApiDocsBtn" class="ghost" type="button">Close</button></div>
-      <p class="muted">Base URL: <code>http://localhost:4300</code> or your configured deployment origin.</p>
+      <p class="muted">Base URL: <code id="docsBaseUrl">http://localhost:4300</code> or your configured deployment origin.</p>
+      <section id="selectedApiDocs" class="docs-card selected-api-docs hidden">
+        <div class="panel-head"><div><p class="eyebrow">Generated endpoint reference</p><h3 id="selectedApiDocsTitle">API documentation</h3></div><a id="selectedApiDocsJson" class="ghost small docs-link" target="_blank" rel="noopener">Open JSON docs</a></div>
+        <p class="muted">Target browser domain: <code id="selectedApiDocsTarget"></code></p>
+        <p class="muted">Endpoint: <code id="selectedApiDocsEndpoint"></code></p>
+        <h3 class="docs-example-heading">GET example</h3><pre id="doc-selected-api-get" class="logs docs-code"></pre><button class="ghost small copy-btn" data-copy-target="doc-selected-api-get" type="button">Copy</button>
+        <h3 class="docs-example-heading">POST example</h3><pre id="doc-selected-api-post" class="logs docs-code"></pre><button class="ghost small copy-btn" data-copy-target="doc-selected-api-post" type="button">Copy</button>
+      </section>
       <div class="docs-card"><h3>Published API (GET or POST)</h3><p class="muted">Create an API in the APIs section, then callers send declared variables directly.</p><pre id="doc-public-api" class="logs docs-code">curl -X POST "http://localhost:4300/v1/google-results" \
   -H "Content-Type: application/json" \
   -d '{"search_request":"closest planet to earth"}'
