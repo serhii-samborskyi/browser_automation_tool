@@ -131,7 +131,7 @@ fi
 
 PLAYWRIGHT_PLATFORM_OVERRIDE="$(playwright_platform_override)"
 if [[ -n "${PLAYWRIGHT_PLATFORM_OVERRIDE}" ]]; then
-  echo "Ubuntu ${VERSION_ID} is newer than this Playwright release; using ${PLAYWRIGHT_PLATFORM_OVERRIDE} compatibility downloads."
+  echo "Ubuntu 26.04+ is newer than this Playwright release; using ${PLAYWRIGHT_PLATFORM_OVERRIDE} compatibility downloads."
 fi
 
 echo "[4/7] Installing Playwright Chromium operating-system dependencies..."
