@@ -10,6 +10,8 @@
     "restart": "bash ./restart.sh",
     "install-and-run": "bash ./install_and_run.sh --local --port 4300",
     "install-full": "bash ./install_and_run.sh --full --port 4300",
+    "postgres:local": "bash ./install_local_postgres.sh --app-port 4300",
+    "redeploy": "bash ./redeploy_from_github.sh --port 4300",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "postinstall": "prisma generate",

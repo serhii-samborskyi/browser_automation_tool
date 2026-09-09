@@ -13,6 +13,7 @@ PORT="4300"
 MODE="local"
 INSTALL_CHROME="1"
 SUDO=()
+LOCAL_ENV_FILE="${DIR}/data/local.env"
 
 playwright_platform_override() {
   local version arch
@@ -24,6 +25,13 @@ playwright_platform_override() {
   if [[ "${ID:-}" == "ubuntu" && "${version%%.*}" -ge 26 && "${arch}" == "amd64" ]]; then
     echo "ubuntu24.04-x64"
   fi
+}
+
+load_local_database_url() {
+  local database_url
+  [[ -n "${DATABASE_URL:-}" || ! -f "${LOCAL_ENV_FILE}" ]] && return 0
+  database_url="$(sed -n -E 's/^DATABASE_URL=(.*)$/\1/p' "${LOCAL_ENV_FILE}" | tail -n1)"
+  [[ -n "${database_url}" ]] && export DATABASE_URL="${database_url}"
 }
 
 usage() {
@@ -167,4 +175,12 @@ if [[ "${MODE}" == "local" ]]; then
   exec ./restart.sh --local --port "${PORT}"
 fi
 
+load_local_database_url
+if [[ -z "${DATABASE_URL:-}" ]]; then
+  echo "DATABASE_URL is required for full mode. Run ./install_local_postgres.sh first, or export DATABASE_URL." >&2
+  exit 1
+fi
+
+echo "Applying pending PostgreSQL migrations..."
+npx prisma migrate deploy
 exec ./restart.sh --full --port "${PORT}"

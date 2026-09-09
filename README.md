@@ -118,6 +118,38 @@ otherwise configure it before enabling the API.
 If the existing browser setup has a default proxy, import also creates an
 `Imported default proxy` pool and assigns it to the new API records.
 
+### Local PostgreSQL Bootstrap
+
+On Ubuntu/Debian, after local mode is installed, create the local PostgreSQL
+database and switch the app to full mode with one command:
+
+```bash
+cd ~/browser_automation_tool
+./install_local_postgres.sh --app-port 4300
+```
+
+The script installs PostgreSQL, creates a `browser_api` role and database,
+generates a secure password, writes `DATABASE_URL` to `data/local.env` with
+permissions `600`, runs `prisma migrate deploy`, and starts full mode. The
+credential file is ignored by Git. To select your own database user, name, or
+password, use `--user`, `--database`, and `--password`; run `--help` for the
+password requirements.
+
+### Local Redeploy
+
+To update an existing full-mode checkout after a GitHub push:
+
+```bash
+cd ~/browser_automation_tool
+./redeploy_from_github.sh --port 4300
+```
+
+This script refuses to overwrite tracked local changes, fast-forwards from
+`origin/main`, runs `npm ci`, updates Chromium and Camoufox, applies pending
+Prisma migrations, then restarts full mode. It does **not** reset, truncate, or
+rewrite existing PostgreSQL data; `prisma migrate deploy` only applies new
+versioned migrations.
+
 ## Published APIs
 
 Each published API links to one API code file from `scripts/`, declares a target
@@ -189,6 +221,16 @@ npm start
 - Install + run shortcut (default 4300):
 ```bash
 npm run install-and-run
+```
+
+- Install local PostgreSQL and start full mode:
+```bash
+npm run postgres:local
+```
+
+- Pull GitHub changes, migrate PostgreSQL, and restart full mode:
+```bash
+npm run redeploy
 ```
 
 ## Remote MCP (Public Domain)
