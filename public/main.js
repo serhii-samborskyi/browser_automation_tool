@@ -831,32 +831,46 @@ function renderGenericDocumentation(api = null) {
   );
 }
 
-function openApiDocumentation(api = null) {
-  const documentedApi = resolveDocumentationApi(api);
-  renderGenericDocumentation(documentedApi);
-  if (documentedApi) {
-    const endpoint = `${apiOrigin()}/v1/${documentedApi.slug}`;
-    const input = documentationExampleInput(documentedApi);
-    const params = new URLSearchParams();
-    Object.entries(input).forEach(([key, value]) => {
-      params.set(key, typeof value === "object" ? JSON.stringify(value) : String(value));
-    });
-    const getUrl = params.size ? `${endpoint}?${params.toString()}` : endpoint;
-    selectedApiDocsTitle.textContent = `${documentedApi.name} API`;
-    selectedApiDocsTarget.textContent = documentedApi.targetDomain || "Not configured";
-    selectedApiDocsEndpoint.textContent = endpoint;
-    selectedApiDocsJson.href = `${endpoint}/docs`;
-    selectedApiDocsGet.textContent = `curl "${getUrl}"`;
-    selectedApiDocsPost.textContent = [
+function renderSelectedApiDocumentation(api, documentation = null) {
+  const endpoint = documentation?.endpoint || `${apiOrigin()}/v1/${api.slug}`;
+  const input = documentation?.example?.input || documentationExampleInput(api);
+  const params = new URLSearchParams();
+  Object.entries(input).forEach(([key, value]) => {
+    params.set(key, typeof value === "object" ? JSON.stringify(value) : String(value));
+  });
+  const getUrl = documentation?.example?.getUrl || (params.size ? `${endpoint}?${params.toString()}` : endpoint);
+  selectedApiDocsTitle.textContent = `${documentation?.api?.name || api.name} API`;
+  selectedApiDocsTarget.textContent = documentation?.api?.targetDomain || api.targetDomain || "Not configured";
+  selectedApiDocsEndpoint.textContent = endpoint;
+  selectedApiDocsJson.href = documentation?.documentationEndpoint || `${endpoint}/docs`;
+  selectedApiDocsGet.textContent = documentation?.example?.curl?.get || `curl "${getUrl}"`;
+  selectedApiDocsPost.textContent =
+    documentation?.example?.curl?.post ||
+    [
       `curl -X POST "${endpoint}" \\`,
       `  -H "Content-Type: application/json" \\`,
       `  -d '${JSON.stringify(input)}'`
     ].join("\n");
-    selectedApiDocs.classList.remove("hidden");
+  selectedApiDocs.classList.remove("hidden");
+}
+
+async function openApiDocumentation(api = null) {
+  const documentedApi = resolveDocumentationApi(api);
+  renderGenericDocumentation(documentedApi);
+  if (documentedApi) {
+    renderSelectedApiDocumentation(documentedApi);
   } else {
     selectedApiDocs.classList.add("hidden");
   }
   apiDocsModal.classList.remove("hidden");
+
+  if (!documentedApi) return;
+  try {
+    const documentation = await fetchJson(`/v1/${encodeURIComponent(documentedApi.slug)}/docs`);
+    renderSelectedApiDocumentation(documentedApi, documentation);
+  } catch (err) {
+    console.warn("Could not load generated API documentation:", err);
+  }
 }
 
 function renderApiScriptOptions(selected = "") {

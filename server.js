@@ -1358,7 +1358,7 @@ function remoteMcpDetails(req, token = readConfig().mcpAccessToken) {
 
 async function handlePublicApiDocumentation(req, res) {
   try {
-    res.json(await getPublicApiDocumentation(req.params.slug, publicRequestOrigin(req)));
+    res.json(await getPublicApiDocumentation(req.params.slug, publicRequestOrigin(req), SCRIPTS_DIR));
   } catch (err) {
     sendPlatformError(res, err);
   }

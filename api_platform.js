@@ -932,6 +932,38 @@ function documentationInput(schema) {
   );
 }
 
+function inferInputSchemaFromScript(scriptName, scriptsDir, declaredSchema) {
+  const schema = Array.isArray(declaredSchema) ? [...declaredSchema] : [];
+  if (!scriptsDir) return schema;
+
+  const safeName = sanitizeScriptName(scriptName);
+  const filePath = safeName ? path.join(scriptsDir, safeName) : null;
+  if (!filePath || !fs.existsSync(filePath)) return schema;
+
+  const knownNames = new Set(schema.map((field) => field?.name).filter(Boolean));
+  const inferredNames = new Set();
+  const source = fs.readFileSync(filePath, "utf8");
+  const dotAccess = /\binput\s*(?:\?\.|\.)\s*([A-Za-z_][A-Za-z0-9_]*)\b/g;
+  const bracketAccess = /\binput\s*\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/g;
+
+  for (const expression of [dotAccess, bracketAccess]) {
+    let match;
+    while ((match = expression.exec(source))) inferredNames.add(match[1]);
+  }
+
+  for (const name of inferredNames) {
+    if (knownNames.has(name)) continue;
+    schema.push({
+      name,
+      type: "string",
+      required: false,
+      default: null,
+      description: `Inferred from input.${name} in ${safeName}.`
+    });
+  }
+  return schema;
+}
+
 function documentationQuery(input) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(input)) {
@@ -940,11 +972,12 @@ function documentationQuery(input) {
   return params.toString();
 }
 
-export async function getPublicApiDocumentation(slug, baseUrl) {
+export async function getPublicApiDocumentation(slug, baseUrl, scriptsDir = null) {
   const api = apiSnapshot(await getApiWithRelations(normalizeSlug(slug), true));
   const origin = String(baseUrl || "").replace(/\/+$/, "");
   const endpoint = `${origin}/v1/${api.slug}`;
-  const exampleInput = documentationInput(api.inputSchema);
+  const inputSchema = inferInputSchemaFromScript(api.scriptName, scriptsDir, api.inputSchema);
+  const exampleInput = documentationInput(inputSchema);
   const query = documentationQuery(exampleInput);
   const getUrl = query ? `${endpoint}?${query}` : endpoint;
   const postBody = JSON.stringify(exampleInput, null, 2);
@@ -962,7 +995,7 @@ export async function getPublicApiDocumentation(slug, baseUrl) {
     endpoint,
     documentationEndpoint: `${endpoint}/docs`,
     methods: ["GET", "POST"],
-    inputSchema: api.inputSchema,
+    inputSchema,
     example: {
       input: exampleInput,
       getUrl,
