@@ -658,7 +658,7 @@ async function claimProxyForApi(api, preferredProxyId = null) {
     });
 
     if (claimed) {
-      return { ...candidate, usage: claimed, targetDomain };
+      return { ...candidate, pool: candidate.link.pool, usage: claimed, targetDomain };
     }
   }
 
