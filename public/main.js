@@ -113,6 +113,7 @@ const staticProfilePreset = document.getElementById("staticProfilePreset");
 const createStaticProfileBtn = document.getElementById("createStaticProfileBtn");
 const staticProfilesList = document.getElementById("staticProfilesList");
 const docsBaseUrl = document.getElementById("docsBaseUrl");
+const genericPublicApiDocs = document.getElementById("genericPublicApiDocs");
 const selectedApiDocs = document.getElementById("selectedApiDocs");
 const selectedApiDocsTitle = document.getElementById("selectedApiDocsTitle");
 const selectedApiDocsTarget = document.getElementById("selectedApiDocsTarget");
@@ -791,19 +792,25 @@ function setDocumentationText(id, value) {
   if (element) element.textContent = value;
 }
 
-function renderGenericDocumentation() {
+function resolveDocumentationApi(api = null) {
+  return api || platformApis.find((item) => item.id === editingApiId.value) || platformApis[0] || null;
+}
+
+function renderGenericDocumentation(api = null) {
   const origin = apiOrigin();
-  const exampleInput = { search_request: "closest planet to earth" };
+  const endpoint = api ? `${origin}/v1/${api.slug}` : `${origin}/v1/<api-slug>`;
+  const exampleInput = api ? documentationExampleInput(api) : { input_name: "example" };
   const query = new URLSearchParams(exampleInput).toString();
   if (docsBaseUrl) docsBaseUrl.textContent = origin;
+  genericPublicApiDocs?.classList.toggle("hidden", Boolean(api));
   setDocumentationText(
     "doc-public-api",
     [
-      `curl -X POST "${origin}/v1/google-results" \\`,
+      `curl -X POST "${endpoint}" \\`,
       `  -H "Content-Type: application/json" \\`,
       `  -d '${JSON.stringify(exampleInput)}'`,
       "",
-      `curl "${origin}/v1/google-results?${query}"`
+      `curl "${endpoint}?${query}"`
     ].join("\n")
   );
   setDocumentationText(
@@ -825,17 +832,18 @@ function renderGenericDocumentation() {
 }
 
 function openApiDocumentation(api = null) {
-  renderGenericDocumentation();
-  if (api) {
-    const endpoint = `${apiOrigin()}/v1/${api.slug}`;
-    const input = documentationExampleInput(api);
+  const documentedApi = resolveDocumentationApi(api);
+  renderGenericDocumentation(documentedApi);
+  if (documentedApi) {
+    const endpoint = `${apiOrigin()}/v1/${documentedApi.slug}`;
+    const input = documentationExampleInput(documentedApi);
     const params = new URLSearchParams();
     Object.entries(input).forEach(([key, value]) => {
       params.set(key, typeof value === "object" ? JSON.stringify(value) : String(value));
     });
     const getUrl = params.size ? `${endpoint}?${params.toString()}` : endpoint;
-    selectedApiDocsTitle.textContent = `${api.name} API`;
-    selectedApiDocsTarget.textContent = api.targetDomain || "Not configured";
+    selectedApiDocsTitle.textContent = `${documentedApi.name} API`;
+    selectedApiDocsTarget.textContent = documentedApi.targetDomain || "Not configured";
     selectedApiDocsEndpoint.textContent = endpoint;
     selectedApiDocsJson.href = `${endpoint}/docs`;
     selectedApiDocsGet.textContent = `curl "${getUrl}"`;

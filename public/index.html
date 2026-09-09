@@ -162,11 +162,11 @@
         <h3 class="docs-example-heading">GET example</h3><pre id="doc-selected-api-get" class="logs docs-code"></pre><button class="ghost small copy-btn" data-copy-target="doc-selected-api-get" type="button">Copy</button>
         <h3 class="docs-example-heading">POST example</h3><pre id="doc-selected-api-post" class="logs docs-code"></pre><button class="ghost small copy-btn" data-copy-target="doc-selected-api-post" type="button">Copy</button>
       </section>
-      <div class="docs-card"><h3>Published API (GET or POST)</h3><p class="muted">Create an API in the APIs section, then callers send declared variables directly.</p><pre id="doc-public-api" class="logs docs-code">curl -X POST "http://localhost:4300/v1/google-results" \
+      <div id="genericPublicApiDocs" class="docs-card"><h3>Published API (GET or POST)</h3><p class="muted">Create an API in the APIs section, then callers send declared variables directly.</p><pre id="doc-public-api" class="logs docs-code">curl -X POST "http://localhost:4300/v1/&lt;api-slug&gt;" \
   -H "Content-Type: application/json" \
-  -d '{"search_request":"closest planet to earth"}'
+  -d '{"input_name":"example"}'
 
-curl "http://localhost:4300/v1/google-results?search_request=closest%20planet%20to%20earth"</pre><button class="ghost small copy-btn" data-copy-target="doc-public-api" type="button">Copy</button></div>
+curl "http://localhost:4300/v1/&lt;api-slug&gt;?input_name=example"</pre><button class="ghost small copy-btn" data-copy-target="doc-public-api" type="button">Copy</button></div>
       <div class="docs-card"><h3>Run Script Sync (GET)</h3><p class="muted">Runs one script and returns JSON directly. Extra query params become <code>input</code> in code.</p><pre id="doc-run-sync" class="logs docs-code">curl "http://localhost:4300/api/run-sync?scriptName=ai_overview.js&amp;request=closest%20planet&amp;noProxy=true&amp;includeLogs=true"</pre><button class="ghost small copy-btn" data-copy-target="doc-run-sync" type="button">Copy</button></div>
       <div class="docs-card"><h3>Run Script Async (POST)</h3><p class="muted">Queues a run and returns its ID.</p><pre id="doc-run-async" class="logs docs-code">curl -X POST "http://localhost:4300/api/scripts/run" \
   -H "Content-Type: application/json" \
