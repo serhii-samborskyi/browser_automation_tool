@@ -223,9 +223,17 @@ npm start
 ./restart.sh --full --desktop --port 4300
 ```
 
-`--desktop` must run as the same Linux user logged in to GNOME. It discovers the
-active Wayland/Xwayland display and authentication values, so it does not fall
-back to `xvfb-run`. Use it for a remote full deployment as well:
+`--desktop` must run as the same Linux user logged in to GNOME. For the most
+reliable result, capture the exact graphical-terminal environment once after
+logging in to GNOME:
+
+```bash
+./capture_desktop_session.sh
+```
+
+Then SSH restarts use that captured display/authentication context and do not
+fall back to `xvfb-run`. Repeat the capture after logging out of GNOME. Use it
+for a remote full deployment as well:
 
 ```bash
 ./redeploy_from_github.sh --desktop --port 4300
