@@ -23,6 +23,7 @@ PORT="${PORT:-}"
 FORCE_XVFB="${FORCE_XVFB:-0}"
 DAEMON_MODE="${DAEMON_MODE:-1}"
 LOCAL_MODE="${LOCAL_MODE:-0}"
+USE_DESKTOP="${USE_DESKTOP:-0}"
 
 playwright_platform_override() {
   local version arch
@@ -56,6 +57,98 @@ ensure_camoufox_install() {
     echo "Camoufox fetch completed without ${version_file}." >&2
     exit 1
   fi
+}
+
+desktop_session_value() {
+  local name="$1"
+  local process pid value
+
+  for process in gnome-shell gnome-session-binary gnome-session; do
+    while IFS= read -r pid; do
+      [[ -r "/proc/${pid}/environ" ]] || continue
+      value="$(tr '\0' '\n' < "/proc/${pid}/environ" | sed -n "s/^${name}=//p" | head -n1)"
+      if [[ -n "${value}" ]]; then
+        printf '%s\n' "${value}"
+        return 0
+      fi
+    done < <(pgrep -u "$(id -u)" -x "${process}" 2>/dev/null || true)
+  done
+  return 1
+}
+
+prepare_desktop_environment() {
+  local user_id runtime_dir wayland_socket wayland_display xwayland_pid xwayland_args x_display x_authority x_socket
+
+  [[ "$(uname -s)" == "Linux" ]] || {
+    echo "--desktop is supported only on Linux." >&2
+    exit 1
+  }
+
+  user_id="$(id -u)"
+  runtime_dir="$(desktop_session_value XDG_RUNTIME_DIR || true)"
+  runtime_dir="${runtime_dir:-/run/user/${user_id}}"
+  if [[ ! -d "${runtime_dir}" ]]; then
+    echo "No active desktop runtime directory for user $(id -un): ${runtime_dir}" >&2
+    echo "Connect over SSH as the same user that is logged in to GNOME." >&2
+    exit 1
+  fi
+
+  wayland_display="$(desktop_session_value WAYLAND_DISPLAY || true)"
+  if [[ -z "${wayland_display}" ]]; then
+    for wayland_socket in "${runtime_dir}"/wayland-*; do
+      [[ -S "${wayland_socket}" ]] || continue
+      wayland_display="${wayland_socket##*/}"
+      break
+    done
+  fi
+
+  xwayland_pid="$(pgrep -u "${user_id}" -x Xwayland 2>/dev/null | head -n1 || true)"
+  if [[ -n "${xwayland_pid}" && -r "/proc/${xwayland_pid}/cmdline" ]]; then
+    xwayland_args="$(tr '\0' ' ' < "/proc/${xwayland_pid}/cmdline")"
+  else
+    xwayland_args=""
+  fi
+  x_display="$(awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^:[0-9]+$/) { print $i; exit } }' <<< "${xwayland_args}")"
+  x_authority="$(awk '{ for (i = 1; i < NF; i++) if ($i == "-auth") { print $(i + 1); exit } }' <<< "${xwayland_args}")"
+
+  if [[ -z "${x_display}" ]]; then
+    for x_socket in /tmp/.X11-unix/X*; do
+      [[ -S "${x_socket}" ]] || continue
+      x_display=":${x_socket##*/X}"
+      break
+    done
+  fi
+
+  if [[ -z "${x_display}" && -z "${wayland_display}" ]]; then
+    echo "No active GNOME Wayland or X11 display was found for user $(id -un)." >&2
+    echo "Log in to the graphical desktop first, then run this command through SSH as that user." >&2
+    exit 1
+  fi
+
+  export XDG_RUNTIME_DIR="${runtime_dir}"
+  export DBUS_SESSION_BUS_ADDRESS="$(desktop_session_value DBUS_SESSION_BUS_ADDRESS || true)"
+  export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${runtime_dir}/bus}"
+
+  if [[ -n "${wayland_display}" ]]; then
+    export WAYLAND_DISPLAY="${wayland_display}"
+    export XDG_SESSION_TYPE="wayland"
+    export MOZ_ENABLE_WAYLAND="1"
+  fi
+  if [[ -n "${x_display}" ]]; then
+    export DISPLAY="${x_display}"
+  else
+    unset DISPLAY
+  fi
+  if [[ -n "${x_authority}" && -r "${x_authority}" ]]; then
+    export XAUTHORITY="${x_authority}"
+  elif [[ -r "${HOME}/.Xauthority" ]]; then
+    export XAUTHORITY="${HOME}/.Xauthority"
+  else
+    unset XAUTHORITY
+  fi
+
+  FORCE_XVFB="0"
+  echo "Using active desktop session: display=${DISPLAY:-Wayland}, wayland=${WAYLAND_DISPLAY:-off}."
 }
 
 read_port_from_config() {
@@ -106,7 +199,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --port)
       if [[ $# -lt 2 ]]; then
-        echo "Usage: $0 [PORT | --port PORT] [--local|--full] [--xvfb] [--daemon|--foreground]" >&2
+        echo "Usage: $0 [PORT | --port PORT] [--local|--full] [--desktop|--xvfb] [--daemon|--foreground]" >&2
         exit 1
       fi
       PORT_FROM_ARG="$2"
@@ -118,6 +211,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-xvfb)
       FORCE_XVFB="0"
+      shift
+      ;;
+    --desktop)
+      USE_DESKTOP="1"
       shift
       ;;
     --local)
@@ -181,6 +278,9 @@ mkdir -p "${RUN_DIR}"
 mkdir -p "${CAMOUFOX_HOME_DIR}"
 load_local_database_url
 ensure_camoufox_install
+if [[ "${USE_DESKTOP}" == "1" || "${USE_DESKTOP}" == "true" || "${USE_DESKTOP}" == "TRUE" ]]; then
+  prepare_desktop_environment
+fi
 
 PLAYWRIGHT_PLATFORM_OVERRIDE="$(playwright_platform_override)"
 START_CMD=(env PORT="${PORT}" LOCAL_MODE="${LOCAL_MODE}" "CAMOUFOX_HOME_DIR=${CAMOUFOX_HOME_DIR}" npm start)
@@ -191,7 +291,7 @@ fi
 if [[ "${LOCAL_MODE}" == "1" || "${LOCAL_MODE}" == "true" || "${LOCAL_MODE}" == "TRUE" ]]; then
   echo "Local mode enabled: PostgreSQL-backed API Builder features are disabled."
 fi
-if [[ "$(uname -s)" == "Linux" && ( "${FORCE_XVFB}" == "1" || -z "${DISPLAY:-}" ) ]]; then
+if [[ "${USE_DESKTOP}" != "1" && "${USE_DESKTOP}" != "true" && "${USE_DESKTOP}" != "TRUE" && "$(uname -s)" == "Linux" && ( "${FORCE_XVFB}" == "1" || -z "${DISPLAY:-}" ) ]]; then
   if command -v xvfb-run >/dev/null 2>&1; then
     START_CMD=(xvfb-run -a -s "-screen 0 1920x1080x24 -ac +extension RANDR" "${START_CMD[@]}")
     echo "Starting with xvfb-run..."

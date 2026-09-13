@@ -8,14 +8,17 @@ DATA_DIR="${DIR}/data"
 LOCAL_ENV_FILE="${LOCAL_ENV_FILE:-${DATA_DIR}/local.env}"
 CAMOUFOX_HOME_DIR="${CAMOUFOX_HOME_DIR:-${DATA_DIR}/camoufox-home}"
 PORT_ARGS=()
+DESKTOP_ARGS=()
 
 usage() {
   cat <<EOF
-Usage: $0 [--port PORT]
+Usage: $0 [--port PORT] [--desktop]
 
 Pulls origin/main with a fast-forward only update, runs npm ci, downloads the
 current Chromium/Camoufox binaries, applies prisma migrate deploy, then restarts
 the application in full mode. Refuses when tracked local files are modified.
+
+  --desktop  Launch headed browser windows in the active GNOME session of this user.
 EOF
 }
 
@@ -44,6 +47,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { usage >&2; exit 1; }
       PORT_ARGS=(--port "$2")
       shift 2
+      ;;
+    --desktop)
+      DESKTOP_ARGS=(--desktop)
+      shift
       ;;
     --help|-h)
       usage
@@ -89,4 +96,4 @@ echo "[4/5] Applying forward PostgreSQL migrations..."
 npx prisma migrate deploy
 
 echo "[5/5] Restarting full mode..."
-exec ./restart.sh --full "${PORT_ARGS[@]}"
+exec ./restart.sh --full "${DESKTOP_ARGS[@]}" "${PORT_ARGS[@]}"

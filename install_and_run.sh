@@ -12,6 +12,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT="4300"
 MODE="local"
 INSTALL_CHROME="1"
+USE_DESKTOP="0"
 SUDO=()
 LOCAL_ENV_FILE="${DIR}/data/local.env"
 CAMOUFOX_HOME_DIR="${DIR}/data/camoufox-home"
@@ -37,11 +38,12 @@ load_local_database_url() {
 
 usage() {
   cat <<EOF
-Usage: $0 [--local|--full] [--port PORT] [--without-chrome]
+Usage: $0 [--local|--full] [--port PORT] [--desktop] [--without-chrome]
 
   --local           Run scripts and the MCP service without PostgreSQL (default).
   --full            Enable PostgreSQL-backed API Builder features when DATABASE_URL is set.
   --port PORT       Static port to use (default: 4300).
+  --desktop          Launch headed browser windows in the active GNOME session of this user.
   --without-chrome  Skip Google Chrome; Chromium and Camoufox are still installed.
 EOF
 }
@@ -63,6 +65,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --without-chrome)
       INSTALL_CHROME="0"
+      shift
+      ;;
+    --desktop)
+      USE_DESKTOP="1"
       shift
       ;;
     --help|-h)
@@ -174,6 +180,9 @@ fi
 echo "[7/7] Starting Browser API Factory in ${MODE} mode on port ${PORT}..."
 chmod +x ./restart.sh
 if [[ "${MODE}" == "local" ]]; then
+  if [[ "${USE_DESKTOP}" == "1" ]]; then
+    exec ./restart.sh --local --desktop --port "${PORT}"
+  fi
   exec ./restart.sh --local --port "${PORT}"
 fi
 
@@ -185,4 +194,7 @@ fi
 
 echo "Applying pending PostgreSQL migrations..."
 npx prisma migrate deploy
+if [[ "${USE_DESKTOP}" == "1" ]]; then
+  exec ./restart.sh --full --desktop --port "${PORT}"
+fi
 exec ./restart.sh --full --port "${PORT}"
