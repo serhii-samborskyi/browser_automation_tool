@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const PROFILE_ROOT = path.join(__dirname, "profile");
+export const CAMOUFOX_HOME_DIR = process.env.CAMOUFOX_HOME_DIR || path.join(__dirname, "data", "camoufox-home");
 
 export const STANDARD_FINGERPRINT_PRESETS = [
   {
@@ -48,6 +49,7 @@ chromiumExtra.use(stealth);
 let chromiumEngine = null;
 let fpWarned = false;
 let camoufoxApi = null;
+let camoufoxApiInFlight = null;
 let safeCamoufoxSharedBrowser = null;
 let safeCamoufoxSharedKey = "";
 let safeCamoufoxLaunchInFlight = null;
@@ -79,8 +81,31 @@ async function getChromiumEngine(usePlaywrightWithFingerprints = true) {
 
 async function getCamoufoxApi() {
   if (camoufoxApi) return camoufoxApi;
+  if (camoufoxApiInFlight) return camoufoxApiInFlight;
+
+  camoufoxApiInFlight = loadCamoufoxApi();
   try {
-    const mod = await import("camoufox-js");
+    return await camoufoxApiInFlight;
+  } finally {
+    camoufoxApiInFlight = null;
+  }
+}
+
+async function loadCamoufoxApi() {
+  try {
+    // camoufox-js derives its install location from HOME during module import.
+    // Give this app its own home directory so other local apps cannot replace
+    // or remove its Camoufox version.json and binary.
+    fs.mkdirSync(CAMOUFOX_HOME_DIR, { recursive: true });
+    const originalHome = process.env.HOME;
+    process.env.HOME = CAMOUFOX_HOME_DIR;
+    let mod;
+    try {
+      mod = await import("camoufox-js");
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+    }
     const Camoufox = typeof mod?.Camoufox === "function" ? mod.Camoufox : null;
     const launchOptions = typeof mod?.launchOptions === "function" ? mod.launchOptions : null;
     if (!Camoufox && !launchOptions) {
@@ -90,7 +115,7 @@ async function getCamoufoxApi() {
     return camoufoxApi;
   } catch (err) {
     throw new Error(
-      `Camoufox engine selected but camoufox-js is not ready (${err?.message || err}). Install with "npm i camoufox-js" and run "npx camoufox-js fetch".`
+      `Camoufox engine selected but camoufox-js is not ready (${err?.message || err}). Run the project's install or redeploy script to fetch its isolated Camoufox binary.`
     );
   }
 }

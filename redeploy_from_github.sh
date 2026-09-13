@@ -6,6 +6,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="${DIR}/data"
 LOCAL_ENV_FILE="${LOCAL_ENV_FILE:-${DATA_DIR}/local.env}"
+CAMOUFOX_HOME_DIR="${CAMOUFOX_HOME_DIR:-${DATA_DIR}/camoufox-home}"
 PORT_ARGS=()
 
 usage() {
@@ -75,7 +76,8 @@ if [[ -n "${PLAYWRIGHT_PLATFORM_OVERRIDE}" ]]; then
 else
   npx playwright install chromium
 fi
-npx camoufox-js fetch
+mkdir -p "${CAMOUFOX_HOME_DIR}"
+HOME="${CAMOUFOX_HOME_DIR}" node ./node_modules/camoufox-js/dist/__main__.js fetch
 
 load_local_database_url
 if [[ -z "${DATABASE_URL:-}" ]]; then

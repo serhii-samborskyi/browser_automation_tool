@@ -14,6 +14,7 @@ MODE="local"
 INSTALL_CHROME="1"
 SUDO=()
 LOCAL_ENV_FILE="${DIR}/data/local.env"
+CAMOUFOX_HOME_DIR="${DIR}/data/camoufox-home"
 
 playwright_platform_override() {
   local version arch
@@ -155,7 +156,8 @@ if [[ -n "${PLAYWRIGHT_PLATFORM_OVERRIDE}" ]]; then
 else
   npx playwright install chromium
 fi
-npx camoufox-js fetch
+mkdir -p "${CAMOUFOX_HOME_DIR}"
+HOME="${CAMOUFOX_HOME_DIR}" node ./node_modules/camoufox-js/dist/__main__.js fetch
 
 if [[ "${INSTALL_CHROME}" == "1" ]] && [[ "$(dpkg --print-architecture)" == "amd64" ]] && ! command -v google-chrome >/dev/null 2>&1; then
   echo "[6/7] Installing Google Chrome..."

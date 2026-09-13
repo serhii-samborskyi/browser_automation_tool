@@ -27,7 +27,7 @@ seed_missing_scripts() {
 }
 
 seed_camoufox_cache() {
-  cache_dir="$HOME/.cache/camoufox"
+  cache_dir="/app/data/camoufox-home/.cache/camoufox"
   template_dir="/opt/camoufox-cache-default"
 
   mkdir -p "$cache_dir"
@@ -41,7 +41,7 @@ ensure_owned_dir /app/profile
 ensure_owned_dir /app/scripts
 seed_missing_scripts
 seed_camoufox_cache
-ensure_owned_dir "$HOME/.cache/camoufox"
+ensure_owned_dir /app/data/camoufox-home
 
 if [ -n "${DATABASE_URL:-}" ]; then
   echo "Applying Prisma migrations..."

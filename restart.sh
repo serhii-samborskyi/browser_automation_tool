@@ -17,6 +17,7 @@ RUN_DIR="${DIR}/data"
 PID_FILE="${RUN_DIR}/server.pid"
 LOG_FILE="${RUN_DIR}/server.log"
 LOCAL_ENV_FILE="${LOCAL_ENV_FILE:-${RUN_DIR}/local.env}"
+CAMOUFOX_HOME_DIR="${CAMOUFOX_HOME_DIR:-${RUN_DIR}/camoufox-home}"
 PORT_FROM_ARG=""
 PORT="${PORT:-}"
 FORCE_XVFB="${FORCE_XVFB:-0}"
@@ -162,12 +163,13 @@ fi
 echo "Starting server on port ${PORT}..."
 cd "${DIR}"
 mkdir -p "${RUN_DIR}"
+mkdir -p "${CAMOUFOX_HOME_DIR}"
 load_local_database_url
 
 PLAYWRIGHT_PLATFORM_OVERRIDE="$(playwright_platform_override)"
-START_CMD=(env PORT="${PORT}" LOCAL_MODE="${LOCAL_MODE}" npm start)
+START_CMD=(env PORT="${PORT}" LOCAL_MODE="${LOCAL_MODE}" "CAMOUFOX_HOME_DIR=${CAMOUFOX_HOME_DIR}" npm start)
 if [[ -n "${PLAYWRIGHT_PLATFORM_OVERRIDE}" ]]; then
-  START_CMD=(env PORT="${PORT}" LOCAL_MODE="${LOCAL_MODE}" "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=${PLAYWRIGHT_PLATFORM_OVERRIDE}" npm start)
+  START_CMD=(env PORT="${PORT}" LOCAL_MODE="${LOCAL_MODE}" "CAMOUFOX_HOME_DIR=${CAMOUFOX_HOME_DIR}" "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=${PLAYWRIGHT_PLATFORM_OVERRIDE}" npm start)
   echo "Using Playwright ${PLAYWRIGHT_PLATFORM_OVERRIDE} compatibility mode."
 fi
 if [[ "${LOCAL_MODE}" == "1" || "${LOCAL_MODE}" == "true" || "${LOCAL_MODE}" == "TRUE" ]]; then

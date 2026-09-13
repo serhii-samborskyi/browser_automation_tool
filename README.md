@@ -86,7 +86,7 @@ including headed jobs running in the container's virtual display.
 | `/app/data` | UI settings, run state, and logs |
 | `/app/profile` | browser profiles and cookies |
 | `/app/scripts` | scripts saved or uploaded through the UI |
-| `/home/node/.cache/camoufox` | Camoufox binary cache |
+| `/app/data/camoufox-home` | project-scoped Camoufox binary cache |
 
 Do not mount a volume at `/app`; it would hide the application files. On the
 first start, the container seeds bundled scripts and the Camoufox binary into
@@ -337,9 +337,12 @@ your network access controls.
 If Camoufox fails on a fresh machine:
 
 ```bash
-npm install
-npx camoufox-js fetch
+./install_and_run.sh --local --port 4300
 ```
+
+Camoufox is stored under `data/camoufox-home`, separate from the shared user
+cache. This prevents another local Camoufox application from replacing this
+project's binary or `version.json`.
 
 ## API Overview
 
