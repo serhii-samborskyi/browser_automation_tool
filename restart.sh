@@ -43,6 +43,21 @@ load_local_database_url() {
   [[ -n "${database_url}" ]] && export DATABASE_URL="${database_url}"
 }
 
+ensure_camoufox_install() {
+  local version_file="${CAMOUFOX_HOME_DIR}/.cache/camoufox/version.json"
+  if [[ -s "${version_file}" ]]; then
+    return 0
+  fi
+
+  echo "Camoufox cache is missing or incomplete. Downloading the project-scoped binary..."
+  HOME="${CAMOUFOX_HOME_DIR}" node "${DIR}/node_modules/camoufox-js/dist/__main__.js" fetch
+
+  if [[ ! -s "${version_file}" ]]; then
+    echo "Camoufox fetch completed without ${version_file}." >&2
+    exit 1
+  fi
+}
+
 read_port_from_config() {
   [[ -f "${CFG_FILE}" ]] || return 0
   grep -E '^port[[:space:]]*=' "${CFG_FILE}" | tail -n1 | sed -E 's/[^0-9]*([0-9]+).*/\1/' || true
@@ -165,6 +180,7 @@ cd "${DIR}"
 mkdir -p "${RUN_DIR}"
 mkdir -p "${CAMOUFOX_HOME_DIR}"
 load_local_database_url
+ensure_camoufox_install
 
 PLAYWRIGHT_PLATFORM_OVERRIDE="$(playwright_platform_override)"
 START_CMD=(env PORT="${PORT}" LOCAL_MODE="${LOCAL_MODE}" "CAMOUFOX_HOME_DIR=${CAMOUFOX_HOME_DIR}" npm start)
