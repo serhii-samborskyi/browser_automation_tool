@@ -267,6 +267,24 @@ export function parseProxy(proxyString) {
   return candidates[0] || null;
 }
 
+function summarizeProxyTestError(error) {
+  const raw = String(error?.message || error || "Proxy test failed");
+  if (/\b407\b|proxy authentication required/i.test(raw)) {
+    return {
+      reachable: true,
+      authRequired: true,
+      status: 407,
+      error: "Proxy endpoint is online but requires authentication. Add user:pass@host:port or whitelist this server IP."
+    };
+  }
+  return {
+    reachable: false,
+    authRequired: false,
+    status: null,
+    error: raw.replace(/\u001b\[[0-9;]*m/g, "").replace(/\s+/g, " ").slice(0, 500)
+  };
+}
+
 export async function testProxyConnection(proxyString, preferredProtocol) {
   const candidates = parseProxyCandidates(proxyString, preferredProtocol);
   if (!candidates.length) {
@@ -302,6 +320,18 @@ export async function testProxyConnection(proxyString, preferredProtocol) {
         });
 
         const response = await req.get("https://example.com", { timeout: 12000 });
+        if (response.status() === 407) {
+          return {
+            ok: false,
+            reachable: true,
+            authRequired: true,
+            protocol,
+            auth: candidate.auth,
+            status: 407,
+            error: "Proxy endpoint is online but requires authentication. Add user:pass@host:port or whitelist this server IP.",
+            durationMs: Date.now() - started
+          };
+        }
 
         return {
           ok: true,
@@ -313,12 +343,12 @@ export async function testProxyConnection(proxyString, preferredProtocol) {
           durationMs: Date.now() - started
         };
       } catch (err) {
+        const summary = summarizeProxyTestError(err);
         lastError = {
           ok: false,
-          reachable: false,
+          ...summary,
           protocol,
           auth: candidate.auth,
-          error: err?.message || "Proxy test failed",
           durationMs: Date.now() - started
         };
       } finally {

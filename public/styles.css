@@ -51,3 +51,4 @@ label { display: block; margin: 10px 0 5px; color: var(--muted); font-size: .7re
 .docs-link { display: inline-flex; align-items: center; justify-content: center; min-height: 29px; border: 1px solid var(--line-strong); border-radius: 9px; padding: 5px 8px; color: var(--ink); font-size: .65rem; font-weight: 750; text-decoration: none; }
 .docs-link:hover { border-color: var(--pine); background: var(--surface-muted); }
 .docs-example-heading { margin-top: 14px; }
+.health-warning { color: #925b13; }

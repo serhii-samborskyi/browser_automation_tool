@@ -1344,6 +1344,9 @@ proxyPoolsList.addEventListener("click", async (event) => {
             resultElement.className = "muted proxy-test-result health-good";
             resultElement.textContent = `Reachable via ${String(result.protocol || "proxy").toUpperCase()} · ${result.durationMs || 0}ms · HTTP ${result.status || "?"}`;
           }
+        } else if (result.reachable && result.authRequired && resultElement) {
+          resultElement.className = "muted proxy-test-result health-warning";
+          resultElement.textContent = `Online · authentication required (HTTP ${result.status || 407}). Add credentials or whitelist this server IP.`;
         } else if (resultElement) {
           resultElement.className = "muted proxy-test-result health-bad";
           resultElement.textContent = `Failed: ${result.error || "connection could not be established"}`;
