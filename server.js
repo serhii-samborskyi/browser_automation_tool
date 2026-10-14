@@ -28,6 +28,7 @@ import {
   deleteProxy,
   deleteProxyPool,
   getApi,
+  getProxyForTest,
   getPublicApiDocumentation,
   importLegacyScripts,
   invokePublicApi,
@@ -1494,6 +1495,16 @@ app.post("/api/config/proxy/test", async (req, res) => {
     const result = await testProxyConnection(proxy, protocol || undefined);
     res.json(result);
   } catch (err) {
+    res.status(400).json({ error: err?.message || "Proxy test failed" });
+  }
+});
+
+app.post("/api/proxies/:id/test", async (req, res) => {
+  try {
+    const proxy = await getProxyForTest(req.params.id);
+    res.json(await testProxyConnection(proxy.value, proxy.protocol));
+  } catch (err) {
+    if (err instanceof ApiPlatformError) return sendPlatformError(res, err);
     res.status(400).json({ error: err?.message || "Proxy test failed" });
   }
 });

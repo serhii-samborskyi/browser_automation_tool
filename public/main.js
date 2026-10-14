@@ -1084,7 +1084,11 @@ function renderProxyPools() {
                         <code>${escapeHtml(entry.value)}</code>
                         <div class="muted ${healthClass}">${escapeHtml(healthText)} · ${health?.requestCount || 0} used this hour</div>
                       </div>
-                      <button class="ghost danger small delete-proxy" data-id="${escapeHtml(entry.id)}">Remove</button>
+                      <div class="proxy-row-actions">
+                        <button class="ghost small test-pool-proxy" data-id="${escapeHtml(entry.id)}">Test</button>
+                        <button class="ghost danger small delete-proxy" data-id="${escapeHtml(entry.id)}">Remove</button>
+                      </div>
+                      <p class="muted proxy-test-result" aria-live="polite"></p>
                     </div>
                   `;
                 })
@@ -1316,10 +1320,45 @@ apiInputFields.addEventListener("click", (event) => {
 });
 
 proxyPoolsList.addEventListener("click", async (event) => {
+  const testButton = event.target.closest(".test-pool-proxy");
   const proxyButton = event.target.closest(".delete-proxy");
   const poolButton = event.target.closest(".delete-pool");
   const addButton = event.target.closest(".add-pool-proxies");
   try {
+    if (testButton) {
+      const resultElement = testButton.closest(".proxy-row")?.querySelector(".proxy-test-result");
+      const originalLabel = testButton.textContent;
+      testButton.disabled = true;
+      testButton.textContent = "Testing...";
+      if (resultElement) {
+        resultElement.className = "muted proxy-test-result";
+        resultElement.textContent = "Checking connection...";
+      }
+      try {
+        const result = await fetchJson(`/api/proxies/${encodeURIComponent(testButton.dataset.id)}/test`, {
+          method: "POST",
+          body: "{}"
+        });
+        if (result.ok) {
+          if (resultElement) {
+            resultElement.className = "muted proxy-test-result health-good";
+            resultElement.textContent = `Reachable via ${String(result.protocol || "proxy").toUpperCase()} · ${result.durationMs || 0}ms · HTTP ${result.status || "?"}`;
+          }
+        } else if (resultElement) {
+          resultElement.className = "muted proxy-test-result health-bad";
+          resultElement.textContent = `Failed: ${result.error || "connection could not be established"}`;
+        }
+      } catch (err) {
+        if (resultElement) {
+          resultElement.className = "muted proxy-test-result health-bad";
+          resultElement.textContent = `Failed: ${platformErrorMessage(err)}`;
+        }
+      } finally {
+        testButton.disabled = false;
+        testButton.textContent = originalLabel;
+      }
+      return;
+    }
     if (proxyButton) {
       if (!confirm("Remove this proxy? Any static profile using it will need a new fixed proxy.")) return;
       await fetchJson(`/api/proxies/${encodeURIComponent(proxyButton.dataset.id)}`, { method: "DELETE" });

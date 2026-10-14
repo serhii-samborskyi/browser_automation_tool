@@ -1174,6 +1174,15 @@ export async function updateProxy(proxyId, body) {
   return await db.proxy.update({ where: { id: proxyId }, data });
 }
 
+export async function getProxyForTest(proxyId) {
+  const proxy = await getPrisma().proxy.findUnique({
+    where: { id: proxyId },
+    select: { id: true, value: true, protocol: true }
+  });
+  if (!proxy) throw new ApiPlatformError("Proxy not found.", { status: 404, code: "PROXY_NOT_FOUND" });
+  return proxy;
+}
+
 export async function deleteProxy(proxyId) {
   await getPrisma().proxy.delete({ where: { id: proxyId } });
   return { ok: true };
