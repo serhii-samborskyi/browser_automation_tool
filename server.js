@@ -57,6 +57,7 @@ const DEFAULT_CONFIG = {
   profileName: "default",
   browserEngine: "chromium",
   headless: false,
+  backgroundWindows: true,
   proxy: "",
   userAgent: "",
   viewportWidth: 1440,
@@ -123,6 +124,8 @@ function readConfig() {
       ...DEFAULT_CONFIG,
       ...parsed,
       browserEngine: normalizeBrowserEngine(parsed?.browserEngine || DEFAULT_CONFIG.browserEngine),
+      backgroundWindows:
+        parsed?.backgroundWindows === undefined ? DEFAULT_CONFIG.backgroundWindows : Boolean(parsed.backgroundWindows),
       rotateProfileEveryNRequests: normalizeRotateEvery(parsed?.rotateProfileEveryNRequests),
       rotateFingerprintWithProfile: Boolean(parsed?.rotateFingerprintWithProfile),
       safeModeEnabled: Boolean(parsed?.safeModeEnabled),
@@ -748,6 +751,7 @@ function buildLaunchSessionOptions(runConfig, ephemeral) {
     profileName: runConfig.profileName,
     browserEngine: runConfig.browserEngine,
     headless: runConfig.headless,
+    backgroundWindows: runConfig.backgroundWindows !== false,
     proxy: runConfig.proxy,
     userAgent: runConfig.userAgent,
     viewportWidth: runConfig.viewportWidth,
@@ -1419,6 +1423,8 @@ app.post("/api/config", (req, res) => {
     profileName: String(body.profileName || "default"),
     browserEngine: normalizeBrowserEngine(body.browserEngine || DEFAULT_CONFIG.browserEngine),
     headless: Boolean(body.headless),
+    backgroundWindows:
+      body.backgroundWindows === undefined ? readConfig().backgroundWindows !== false : Boolean(body.backgroundWindows),
     proxy: String(body.proxy || ""),
     userAgent: String(body.userAgent || ""),
     viewportWidth: Number(body.viewportWidth) || DEFAULT_CONFIG.viewportWidth,

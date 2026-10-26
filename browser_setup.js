@@ -428,7 +428,8 @@ export async function launchBrowserSession(options = {}) {
     usePlaywrightWithFingerprints = true,
     safeModeSharedBrowserIdleMs = 30000,
     ephemeral = false,
-    safeModeEnabled = false
+    safeModeEnabled = false,
+    backgroundWindows = true
   } = options;
 
   const proxyOpts = parseProxy(proxy);
@@ -491,7 +492,12 @@ export async function launchBrowserSession(options = {}) {
       headless,
       proxy: camoufoxProxy,
       locale: locale || "en-US",
-      window: [Number(viewportWidth) || 1440, Number(viewportHeight) || 900]
+      window: [Number(viewportWidth) || 1440, Number(viewportHeight) || 900],
+      // Playwright adds -foreground to headful Firefox. Omitting it lets the
+      // desktop compositor keep the user's current application focused.
+      ...(backgroundWindows
+        ? { ignoreDefaultArgs: ["-foreground", "-wait-for-browser-foreground"] }
+        : {})
     };
 
     if (useSafeCamoufoxReuse) {
@@ -595,7 +601,7 @@ export async function launchBrowserSession(options = {}) {
   let page = context.pages()[0] || null;
   if (!page) {
     page = await context.newPage();
-  } else {
+  } else if (!backgroundWindows) {
     try {
       await page.bringToFront();
     } catch {

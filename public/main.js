@@ -46,6 +46,7 @@ const safeModeMinFreeRamGb = document.getElementById("safeModeMinFreeRamGb");
 const browserJobTimeoutMs = document.getElementById("browserJobTimeoutMs");
 const camoufoxSharedIdleMs = document.getElementById("camoufoxSharedIdleMs");
 const headless = document.getElementById("headless");
+const backgroundWindows = document.getElementById("backgroundWindows");
 const advancedFingerprintMode = document.getElementById("advancedFingerprintMode");
 const usePlaywrightWithFingerprints = document.getElementById("usePlaywrightWithFingerprints");
 const measureTrafficUsage = document.getElementById("measureTrafficUsage");
@@ -305,6 +306,7 @@ async function loadConfig() {
   browserJobTimeoutMs.value = Math.max(10000, Number(cfg.browserJobTimeoutMs) || 180000);
   camoufoxSharedIdleMs.value = Math.max(5000, Number(cfg.camoufoxSharedIdleMs) || 30000);
   headless.checked = Boolean(cfg.headless);
+  backgroundWindows.checked = cfg.backgroundWindows !== false;
   advancedFingerprintMode.checked = cfg.advancedFingerprintMode !== false;
   usePlaywrightWithFingerprints.checked = cfg.usePlaywrightWithFingerprints !== false;
   measureTrafficUsage.checked = Boolean(cfg.measureTrafficUsage);
@@ -399,6 +401,7 @@ async function saveConfig() {
       browserJobTimeoutMs: Math.max(10000, Number(browserJobTimeoutMs.value) || 180000),
       camoufoxSharedIdleMs: Math.max(5000, Number(camoufoxSharedIdleMs.value) || 30000),
       headless: headless.checked,
+      backgroundWindows: backgroundWindows.checked,
       advancedFingerprintMode: advancedFingerprintMode.checked,
       usePlaywrightWithFingerprints: usePlaywrightWithFingerprints.checked,
       measureTrafficUsage: measureTrafficUsage.checked,
